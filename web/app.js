@@ -6,6 +6,7 @@ let config = { ready: false },
   card = null,
   md = "",
   busy = false,
+  loadingExample = false,
   toastTimer;
 function node(tag, text, cls) {
   const el = document.createElement(tag);
@@ -47,16 +48,17 @@ function error(err) {
   box.hidden = false;
 }
 function controls() {
-  $("generate").disabled = busy || !config.ready;
+  $("generate").disabled = busy || loadingExample || !config.ready;
   $("saved").disabled =
     busy ||
+    loadingExample ||
     !currentExample ||
     $("product-json").value !== initialInput ||
     !currentExample.card;
   document
     .querySelectorAll("[data-example]")
-    .forEach((b) => (b.disabled = busy));
-  $("product-json").disabled = busy;
+    .forEach((b) => (b.disabled = busy || loadingExample));
+  $("product-json").disabled = busy || loadingExample;
 }
 function invalidate() {
   card = null;
@@ -147,9 +149,12 @@ function render(data, markdownText) {
   if (card.source_url) $("source").href = card.source_url;
 }
 async function selectExample(id) {
-  if (busy) return;
+  if (busy || loadingExample) return;
   clearError();
   invalidate();
+  loadingExample = true;
+  currentExample = null;
+  controls();
   try {
     const data = await api("/api/examples/" + id);
     currentExample = data;
@@ -163,6 +168,9 @@ async function selectExample(id) {
     controls();
   } catch (err) {
     error(err);
+  } finally {
+    loadingExample = false;
+    controls();
   }
 }
 document

@@ -33,6 +33,8 @@ def main():
                     locale="ru-RU", reduced_motion="reduce", accept_downloads=True,
                     is_mobile=width<600, has_touch=width<600, service_workers="block")
                 errors = []
+                if width==1440:
+                    context.add_init_script("""const originalFetch=window.fetch;window.fetch=async function(input,...rest){if(String(input).includes('/api/examples/testo-511'))await new Promise(resolve=>setTimeout(resolve,400));return originalFetch.call(this,input,...rest)}""")
                 def route(request):
                     target = urlsplit(request.request.url)
                     if target.scheme in {"data", "blob"}:
@@ -60,6 +62,8 @@ def main():
                     page.screenshot(path=str(out/f"{width}-empty.png"), full_page=True)
                     for key in ["testo-510", "testo-511"]:
                         page.locator(f'[data-example="{key}"]').click()
+                        if width==1440 and key=='testo-511':
+                            assert page.locator('#saved').is_disabled()
                         expect(page.locator('#product-json')).to_have_value(re.compile(key.replace('-', ' ')))
                         page.get_by_role("button", name="Посмотреть готовый пример").click()
                         page.locator("#result").wait_for(state="visible")
