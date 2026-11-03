@@ -2,187 +2,574 @@
 <html lang="ru">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="theme-color" content="#f3f5f8" />
     <meta name="color-scheme" content="light" />
-    <title>Прибор / Студия товарных карточек</title>
+    <meta
+      name="description"
+      content="AI-редактор карточек измерительных приборов. Реальные примеры, точные характеристики, источники и проверка перед публикацией."
+    />
+    <title>Прибор — AI-редактор каталога</title>
+    <link
+      rel="preload"
+      href="./assets/manrope-cyrillic.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
     <link rel="stylesheet" href="./style.css" />
     <script src="./app.js" defer></script>
   </head>
   <body>
+    <svg
+      class="icon-library"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <symbol id="i-document" viewBox="0 0 24 24">
+        <path
+          d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5"
+        />
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24">
+        <path d="m5 12 4 4L19 6" />
+      </symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24">
+        <rect x="8" y="8" width="12" height="13" rx="2" />
+        <path d="M16 8V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h4" />
+      </symbol>
+      <symbol id="i-download" viewBox="0 0 24 24">
+        <path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4" />
+      </symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24">
+        <path d="M7 17 17 7M7 7h10v10" />
+      </symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24">
+        <path d="m15 4 5 5M4 20l5-1L20 8a2 2 0 0 0-5-5L4 14z" />
+      </symbol>
+      <symbol id="i-code" viewBox="0 0 24 24">
+        <path d="m8 6-6 6 6 6m8-12 6 6-6 6M14 3l-4 18" />
+      </symbol>
+      <symbol id="i-info" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 11v6m0-11v1" />
+      </symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24">
+        <path d="M12 5v14M5 12h14" />
+      </symbol>
+      <symbol id="i-close" viewBox="0 0 24 24">
+        <path d="m6 6 12 12M6 18 18 6" />
+      </symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24">
+        <path d="M20 7v5h-5M4 17v-5h5" />
+        <path d="M6.5 6a8 8 0 0 1 13 2M4.5 16a8 8 0 0 0 13 2" />
+      </symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24">
+        <path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6z" />
+        <path d="m8 12 3 3 5-6" />
+      </symbol>
+    </svg>
     <a class="skip" href="#workspace">Перейти к редактору</a>
     <header class="topbar">
-      <a class="brand" href="./" aria-label="Прибор, главная"
-        ><span class="brand-mark" aria-hidden="true">П</span>ПРИБОР<span
-          class="brand-divider"
-          >/</span
-        ><span class="brand-sub">Контент-студия</span></a
-      ><span class="prototype">Прототип для «Союз-Прибор»</span
-      ><span id="connection" class="connection">Проверяем API…</span>
+      <div class="header-inner">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"
+            ><svg><use href="#i-document" /></svg
+          ></span>
+          <div>
+            <h1>
+              Прибор<span class="brand-description">
+                / AI-редактор каталога</span
+              >
+            </h1>
+            <p>Тестовое задание для «Союз-Прибор»</p>
+          </div>
+        </div>
+        <a
+          class="code-link"
+          aria-label="Открыть код проекта на GitHub"
+          href="https://github.com/evdokimow8-star/souz-pribor-ai-test"
+          target="_blank"
+          rel="noopener noreferrer"
+          ><svg aria-hidden="true"><use href="#i-code" /></svg
+          ><span>Код<span class="desktop-word"> проекта</span></span
+          ><svg class="external-icon" aria-hidden="true">
+            <use href="#i-arrow" /></svg
+        ></a>
+      </div>
     </header>
-    <main>
-      <section class="intro">
-        <div>
-          <p class="eyebrow">КАТАЛОГ КИП И АВТОМАТИКИ</p>
-          <h1>От технических данных<br />к понятной карточке.</h1>
-          <p class="lead">
-            Подготовьте черновик для B2B-каталога. Исходные факты остаются на
-            виду — неизвестные характеристики требуют уточнения.
-          </p>
-        </div>
-        <aside class="principle">
-          <span class="principle-label">ПРИНЦИП РАБОТЫ</span>
-          <p>
-            Факты — из источника.<br />Формулировки — от AI.<br /><strong
-              >Публикация — за редактором.</strong
-            >
-          </p>
-        </aside>
-      </section>
-      <section class="workspace" id="workspace" aria-label="Редактор карточки">
-        <div class="input-pane">
-          <div class="pane-heading">
-            <div>
-              <span class="step">01 / ИСТОЧНИК</span>
-              <h2>Данные прибора</h2>
-            </div>
-            <span class="file-type">JSON</span>
-          </div>
-          <fieldset class="examples">
-            <legend>Начните с проверенного примера</legend>
-            <button type="button" data-example="testo-510" aria-pressed="false">
-              testo 510 <span>Перепад давления</span></button
-            ><button
-              type="button"
-              data-example="testo-511"
-              aria-pressed="false"
-            >
-              testo 511 <span>Абсолютное давление</span>
-            </button>
-          </fieldset>
-          <label class="editor-label" for="product-json"
-            >Исходные данные <span>Можно редактировать</span></label
+    <main id="workspace">
+      <div class="workspace-navigation">
+        <fieldset class="examples">
+          <legend class="sr-only">Рабочий пример прибора</legend>
+          <button type="button" data-example="testo-510" aria-pressed="true">
+            <span
+              >testo 510<span
+                class="draft-dot"
+                aria-label="Есть ваши правки"
+                hidden
+              ></span></span
+            ><small>Перепад давления</small>
+          </button>
+          <button type="button" data-example="testo-511" aria-pressed="false">
+            <span
+              >testo 511<span
+                class="draft-dot"
+                aria-label="Есть ваши правки"
+                hidden
+              ></span></span
+            ><small>Абсолютное давление</small>
+          </button>
+        </fieldset>
+        <div class="view-tabs" role="tablist" aria-label="Раздел редактора">
+          <button
+            type="button"
+            id="tab-card"
+            role="tab"
+            aria-selected="true"
+            aria-controls="panel-card"
+            data-view="card"
           >
-          <textarea
-            id="product-json"
-            spellcheck="false"
-            autocomplete="off"
-            aria-describedby="input-help"
-          ></textarea>
-          <p id="input-help" class="help">
-            name — обязательно. Неизвестные значения оставляйте null.
-            Характеристики переносятся в результат без изменения.
+            <svg aria-hidden="true"><use href="#i-document" /></svg>Карточка
+          </button>
+          <button
+            type="button"
+            id="tab-data"
+            role="tab"
+            aria-selected="false"
+            aria-controls="panel-data"
+            tabindex="-1"
+            data-view="data"
+          >
+            <svg aria-hidden="true"><use href="#i-edit" /></svg>Данные
+          </button>
+          <button
+            type="button"
+            id="tab-checks"
+            role="tab"
+            aria-selected="false"
+            aria-controls="panel-checks"
+            tabindex="-1"
+            data-view="checks"
+          >
+            <svg aria-hidden="true"><use href="#i-shield" /></svg>Проверки<span
+              id="checks-count"
+              class="tab-count"
+              hidden
+            ></span>
+          </button>
+        </div>
+      </div>
+      <div id="error" class="error" role="alert" tabindex="-1" hidden></div>
+      <div id="storage-warning" class="notice" role="status" hidden>
+        Черновик не удалось сохранить: хранилище недоступно или данные слишком
+        велики. Перед закрытием скопируйте исходный JSON и скачайте результат.
+      </div>
+      <div class="workbench">
+        <section
+          id="panel-data"
+          class="data-pane"
+          role="tabpanel"
+          aria-labelledby="tab-data"
+          hidden
+        >
+          <div class="pane-title">
+            <h2 id="data-heading" tabindex="-1">Исходные данные</h2>
+            <span id="draft-status" class="save-status"
+              >Сохраняются в браузере</span
+            >
+          </div>
+          <p class="pane-description">
+            Укажите факты о приборе. Неизвестные значения оставьте пустыми.
           </p>
-          <div class="input-actions">
+          <div class="generate-block">
             <button id="generate" class="primary" type="button" disabled>
-              Подготовить карточку <span aria-hidden="true">↗</span></button
-            ><button id="saved" class="secondary" type="button" disabled>
-              Посмотреть готовый пример
+              <svg aria-hidden="true"><use href="#i-document" /></svg
+              ><span id="generate-label">Создать карточку</span>
             </button>
           </div>
-          <p id="api-help" class="help"></p>
-          <div id="error" class="error" role="alert" hidden></div>
-        </div>
-        <div class="output-pane" aria-busy="false">
-          <div class="pane-heading">
-            <div>
-              <span class="step">02 / РЕЗУЛЬТАТ</span>
-              <h2>Черновик карточки</h2>
-            </div>
-            <span id="draft-badge" class="draft-badge">Ожидает данных</span>
-          </div>
-          <div id="empty" class="empty">
-            <div class="sheet-icon" aria-hidden="true">
-              <span></span><span></span><span></span>
-            </div>
-            <h3>Сначала — исходные факты.</h3>
-            <p>
-              Выберите прибор слева. Откройте сохранённый пример или подготовьте
-              новый черновик через API.
+          <div class="generation-help">
+            <p id="api-help" class="help">
+              Проверяем возможность новой генерации…
             </p>
-            <ul>
-              <li>Заголовок до 70 символов</li>
-              <li>Описание на 800–1200 символов</li>
-              <li>Характеристики и поисковые запросы</li>
-            </ul>
+            <button type="button" id="retry-config" class="text-button" hidden>
+              Проверить доступность снова
+            </button>
           </div>
-          <div id="loading" class="loading" role="status" hidden>
-            <span class="spinner" aria-hidden="true"></span>
-            <h3>Готовим черновик…</h3>
-            <p>
-              После ответа проверим структуру, числа и технические обозначения.
-            </p>
-            <p class="help">
-              Один запрос к модели. Автоматических повторов нет.
-            </p>
+          <div class="input-modes" role="group" aria-label="Способ ввода">
+            <button type="button" id="mode-form" aria-pressed="true">
+              Поля</button
+            ><button type="button" id="mode-json" aria-pressed="false">
+              JSON
+            </button>
           </div>
-          <article id="result" hidden>
-            <div class="result-meta">
-              <span id="generation-mode"></span
-              ><span id="generation-cost"></span>
-            </div>
-            <section class="content-section">
-              <div class="section-label">
-                SEO-ЗАГОЛОВОК <span id="title-count"></span>
-              </div>
-              <h3 id="seo-title"></h3>
-            </section>
-            <section class="content-section">
-              <div class="section-label">
-                ОПИСАНИЕ <span id="description-count"></span>
-              </div>
-              <div id="seo-description" class="description"></div>
-            </section>
-            <section class="content-section">
-              <div class="section-label">ТЕХНИЧЕСКИЕ ХАРАКТЕРИСТИКИ</div>
-              <dl id="specs"></dl>
-            </section>
-            <section class="content-section">
-              <div class="section-label">ПОИСКОВЫЕ ЗАПРОСЫ</div>
-              <ul id="queries" class="queries"></ul>
-            </section>
-            <section class="commercial">
-              <div class="section-label">ДЛЯ МЕНЕДЖЕРА</div>
-              <p id="commercial"></p>
-            </section>
-            <section id="warnings-box" class="warnings" hidden>
-              <h4>Уточнить перед публикацией</h4>
-              <ul id="warnings"></ul>
-            </section>
-            <details class="evidence">
-              <summary>Связь текста с исходными фактами</summary>
-              <p class="help">
-                Ссылки на факты помогают проверить ответ, но не заменяют
-                технического редактора.
-              </p>
-              <div id="evidence-list"></div>
-            </details>
-            <a
-              id="source"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="source"
-              hidden
-              >Открыть источник ↗</a
+          <fieldset id="form-fields" class="data-fields">
+            <legend class="sr-only">Факты о приборе</legend>
+            <label for="product-name"
+              >Название прибора <span class="required">обязательно</span></label
             >
-            <div class="export-actions">
-              <button id="copy" type="button" class="primary">
-                Копировать текст</button
-              ><button id="json" type="button" class="secondary">JSON ↓</button
-              ><button id="markdown" type="button" class="secondary">
-                Markdown ↓
+            <input
+              id="product-name"
+              type="text"
+              maxlength="160"
+              autocomplete="off"
+            />
+            <label for="product-manufacturer">Производитель</label>
+            <input
+              id="product-manufacturer"
+              type="text"
+              maxlength="160"
+              autocomplete="off"
+            />
+            <label for="product-description">Назначение и особенности</label>
+            <textarea
+              id="product-description"
+              rows="5"
+              maxlength="6000"
+            ></textarea>
+            <div class="field-heading">
+              <h3>Характеристики</h3>
+              <span>До 40 параметров</span>
+            </div>
+            <div id="spec-fields"></div>
+            <button type="button" id="add-spec" class="text-button">
+              <svg aria-hidden="true"><use href="#i-plus" /></svg>Добавить
+              характеристику
+            </button>
+            <label for="product-source">Ссылка на источник</label>
+            <input
+              id="product-source"
+              type="url"
+              maxlength="1500"
+              inputmode="url"
+              autocomplete="off"
+              autocapitalize="none"
+              spellcheck="false"
+            />
+            <label for="product-notes">Что важно уточнить</label>
+            <textarea
+              id="product-notes"
+              rows="4"
+              aria-describedby="notes-help"
+            ></textarea>
+            <p id="notes-help" class="help">
+              Каждое замечание — с новой строки. До 10 замечаний.
+            </p>
+          </fieldset>
+          <div id="json-editor" hidden>
+            <label for="product-json">Данные в формате JSON</label>
+            <textarea
+              id="product-json"
+              rows="16"
+              spellcheck="false"
+              autocomplete="off"
+              autocapitalize="none"
+              aria-describedby="json-help"
+            ></textarea>
+            <p class="help" id="json-help">
+              Поле name обязательно. Для неизвестных характеристик используйте
+              null.
+            </p>
+            <button type="button" class="secondary" id="apply-json">
+              Применить JSON к полям
+            </button>
+          </div>
+          <div class="data-footer">
+            <p id="storage-status" class="help">
+              Правки этого примера сохраняются только в вашем браузере.
+            </p>
+            <button type="button" id="reset-draft" class="text-button">
+              <svg aria-hidden="true"><use href="#i-refresh" /></svg>Сбросить
+              правки примера
+            </button>
+          </div>
+        </section>
+        <div class="result-workspace">
+          <div id="loading" class="loading notice" role="status" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <div>
+              <strong>Готовим новую карточку</strong>
+              <p>
+                Один запрос к модели, затем проверка ответа. Предыдущая версия
+                сохранена.
+              </p>
+            </div>
+          </div>
+          <div id="stale-notice" class="notice stale" hidden>
+            <svg aria-hidden="true"><use href="#i-info" /></svg>
+            <p>
+              Исходные данные изменены. Здесь
+              <strong>предыдущая карточка</strong>. Создайте новую, чтобы
+              применить правки.
+            </p>
+          </div>
+          <div class="actionbar" id="result-actions" hidden>
+            <div class="action-caption">
+              <span id="generation-mode">Сохранённый пример</span
+              ><span class="draft-word">Черновик для редактора</span>
+            </div>
+            <div class="action-buttons">
+              <button id="copy" class="primary" type="button">
+                <svg aria-hidden="true"><use href="#i-copy" /></svg
+                ><span>Копировать текст</span>
+              </button>
+              <details id="export-menu" class="export-menu">
+                <summary>
+                  <svg aria-hidden="true"><use href="#i-download" /></svg
+                  >Скачать
+                </summary>
+                <div class="export-options">
+                  <button id="markdown" type="button">
+                    <span>Markdown</span
+                    ><small>Текст с разметкой</small></button
+                  ><button id="json" type="button">
+                    <span>JSON</span><small>Карточка и доказательства</small>
+                  </button>
+                </div>
+              </details>
+            </div>
+          </div>
+          <section
+            id="panel-card"
+            class="card-pane"
+            role="tabpanel"
+            aria-labelledby="tab-card"
+          >
+            <div id="empty" class="empty">
+              <svg aria-hidden="true"><use href="#i-document" /></svg>
+              <h2>Загружаем пример</h2>
+              <p>
+                Настоящая карточка из каталога. Без нового запроса к модели.
+              </p>
+              <button id="saved" class="secondary" type="button" hidden>
+                Открыть сохранённый пример
               </button>
             </div>
-          </article>
+            <article id="result" hidden>
+              <header class="product-header">
+                <p
+                  id="mobile-generation-mode"
+                  class="mobile-generation-mode"
+                ></p>
+                <div class="product-identity">
+                  <div class="product-photo">
+                    <img
+                      id="product-photo"
+                      src="./assets/testo-510.jpg"
+                      alt="Прибор testo 510 из каталога Союз-Прибор"
+                      width="450"
+                      height="450"
+                    /><svg id="product-placeholder" aria-hidden="true" hidden>
+                      <use href="#i-document" />
+                    </svg>
+                  </div>
+                  <div>
+                    <span id="product-maker" class="product-maker">Testo</span>
+                    <h2 id="seo-title" tabindex="-1"></h2>
+                    <p class="title-caption">
+                      Заголовок карточки <span id="title-count"></span>
+                    </p>
+                  </div>
+                </div>
+                <div class="verification-strip">
+                  <span id="draft-badge" class="verified"
+                    ><svg aria-hidden="true"><use href="#i-check" /></svg
+                    ><span>Формат и числа проверены</span></span
+                  ><button
+                    id="review-warnings"
+                    type="button"
+                    class="warning-link"
+                    data-open-view="checks"
+                  ></button>
+                </div>
+                <p id="manual-notice" class="help" hidden>
+                  Текст изменён вручную. Повторно проверьте факты перед
+                  публикацией.
+                </p>
+              </header>
+              <div class="card-content">
+                <section class="content-section">
+                  <div class="section-heading">
+                    <h3>Описание</h3>
+                    <span id="description-count" class="count"></span>
+                  </div>
+                  <div id="seo-description" class="description"></div>
+                </section>
+                <section class="content-section">
+                  <div class="section-heading">
+                    <h3>Характеристики</h3>
+                    <span class="quiet-label">Из исходных данных</span>
+                  </div>
+                  <dl id="specs"></dl>
+                </section>
+                <section class="content-section">
+                  <div class="section-heading"><h3>Поисковые запросы</h3></div>
+                  <ul id="queries" class="queries"></ul>
+                </section>
+                <section class="content-section">
+                  <div class="section-heading"><h3>Для менеджера</h3></div>
+                  <p id="commercial" class="description"></p>
+                </section>
+                <section id="warnings-box" class="warning-summary">
+                  <svg aria-hidden="true"><use href="#i-info" /></svg>
+                  <div>
+                    <h3>Перед публикацией</h3>
+                    <p id="warning-summary-text"></p>
+                    <button
+                      type="button"
+                      class="text-button"
+                      data-open-view="checks"
+                    >
+                      Посмотреть уточнения
+                    </button>
+                  </div>
+                </section>
+                <div class="card-footer">
+                  <button id="show-data" type="button" class="text-button">
+                    <svg aria-hidden="true"><use href="#i-edit" /></svg>Изменить
+                    исходные данные</button
+                  ><button id="edit-result" type="button" class="text-button">
+                    Править текст карточки
+                  </button>
+                </div>
+              </div>
+            </article>
+          </section>
+          <section
+            id="panel-checks"
+            class="checks-pane"
+            role="tabpanel"
+            aria-labelledby="tab-checks"
+            hidden
+          >
+            <header class="checks-header">
+              <h2 tabindex="-1" id="checks-heading">Проверка карточки</h2>
+              <p>
+                Что известно из источника, а что ещё должен уточнить редактор.
+              </p>
+            </header>
+            <div id="checks-empty" class="notice" hidden>
+              Откройте пример или создайте карточку, чтобы увидеть проверки.
+            </div>
+            <div id="checks-content">
+              <div id="check-status" class="check-status">
+                <svg aria-hidden="true"><use href="#i-shield" /></svg>
+                <div>
+                  <h3>Формальные проверки пройдены</h3>
+                  <p>
+                    Проверены структура, длина, числа и технические обозначения.
+                    Характеристики перенесены из входа.
+                  </p>
+                </div>
+              </div>
+              <section class="checks-section">
+                <h3>Уточнить перед публикацией</h3>
+                <ul id="warnings" class="warning-list"></ul>
+                <p class="help">
+                  Формальные проверки не заменяют технического редактора.
+                </p>
+              </section>
+              <a
+                id="source"
+                class="source-link"
+                target="_blank"
+                rel="noopener noreferrer"
+                hidden
+                ><svg aria-hidden="true"><use href="#i-arrow" /></svg
+                ><span
+                  >Открыть исходную страницу<span id="source-host"></span></span
+              ></a>
+              <section class="checks-section">
+                <h3>На каких фактах основан текст</h3>
+                <p class="help" id="evidence-help">
+                  Раскройте фрагмент, чтобы сопоставить его с исходными
+                  сведениями.
+                </p>
+                <div id="evidence-list"></div>
+              </section>
+              <details class="technical-details">
+                <summary>Детали запроса и ограничения</summary>
+                <div>
+                  <dl id="request-details"></dl>
+                  <p>
+                    Сервис получает факты только из входных данных. Ссылка на
+                    источник не загружается автоматически. Смысловую точность
+                    проверяет редактор.
+                  </p>
+                  <p id="budget-details"></p>
+                </div>
+              </details>
+            </div>
+          </section>
         </div>
-      </section>
-      <footer>
-        <span>Локальный прототип · Python · LLM API</span>
-        <p>
-          Проверка контролирует структуру, длину и часть фактических ошибок.
-          Перед публикацией требуется редакторская проверка.
-        </p>
+      </div>
+      <footer class="footer">
+        <p>Факты из источника. Формулировки от AI. Решение за редактором.</p>
+        <a
+          href="https://github.com/evdokimow8-star/souz-pribor-ai-test#архитектура-и-решения"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Как это устроено<svg aria-hidden="true"><use href="#i-arrow" /></svg
+        ></a>
       </footer>
     </main>
+    <dialog id="edit-dialog" aria-labelledby="edit-heading">
+      <form id="edit-form">
+        <div class="dialog-heading">
+          <h2 id="edit-heading">Правка текста</h2>
+          <button
+            class="icon-button"
+            id="close-edit"
+            type="button"
+            aria-label="Закрыть правку текста"
+          >
+            <svg aria-hidden="true"><use href="#i-close" /></svg>
+          </button>
+        </div>
+        <p class="help">
+          Характеристики останутся из источника. Ваши формулировки нужно
+          проверить перед публикацией.
+        </p>
+        <label for="edit-title">Заголовок, до 70 символов</label
+        ><input id="edit-title" maxlength="70" required />
+        <label for="edit-description">Описание, 800–1200 символов</label
+        ><textarea
+          id="edit-description"
+          rows="10"
+          minlength="800"
+          maxlength="1200"
+          required
+        ></textarea>
+        <label for="edit-commercial">Для менеджера</label
+        ><textarea
+          id="edit-commercial"
+          rows="4"
+          maxlength="2000"
+          required
+        ></textarea>
+        <p id="edit-error" class="error" role="alert" hidden></p>
+        <div class="dialog-actions">
+          <button id="restore-text" type="button" class="secondary">
+            Вернуть ответ модели</button
+          ><button type="submit" class="primary">Сохранить правку</button>
+        </div>
+      </form>
+    </dialog>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <div
+      id="announcement"
+      class="sr-only"
+      role="status"
+      aria-live="polite"
+    ></div>
+    <noscript
+      ><p class="noscript">
+        Для редактора нужен JavaScript. Исходные примеры доступны в открытом
+        репозитории.
+      </p></noscript
+    >
   </body>
 </html>

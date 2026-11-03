@@ -17,6 +17,15 @@ from .budget import Budget
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = ("testo-510", "testo-511")
+STATIC_ASSETS = {
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/style.css": ("style.css", "text/css; charset=utf-8"),
+    "/assets/manrope-cyrillic.woff2": ("assets/manrope-cyrillic.woff2", "font/woff2"),
+    "/assets/manrope-latin.woff2": ("assets/manrope-latin.woff2", "font/woff2"),
+    "/assets/testo-510.jpg": ("assets/testo-510.jpg", "image/jpeg"),
+    "/assets/testo-511.jpg": ("assets/testo-511.jpg", "image/jpeg"),
+}
 
 
 def input_hash(product):
@@ -98,14 +107,13 @@ def create_server(port=8765, config=None, public_origin=None, budget=None):
                 if path.startswith("/api/examples/"):
                     self.json(example_data(path.rsplit("/", 1)[-1]))
                     return
-                assets = {"/": "index.html", "/app.js": "app.js", "/style.css": "style.css"}
-                if path not in assets:
+                if path not in STATIC_ASSETS:
                     raise AppError("not_found", "Страница не найдена.", 404)
-                asset = ROOT / "web" / assets[path]
+                relative_path, content_type = STATIC_ASSETS[path]
+                asset = ROOT / "web" / relative_path
                 raw = asset.read_bytes()
-                mime = {".js": "text/javascript", ".css": "text/css", ".html": "text/html"}[asset.suffix]
                 self.send_response(200)
-                self.send_header("Content-Type", mime + "; charset=utf-8")
+                self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(raw)))
                 self.security_headers()
                 self.end_headers()

@@ -42,6 +42,31 @@ class HTTPTests(unittest.TestCase):
             self.assertEqual(r.headers["Cache-Control"], "no-store")
             self.assertIn("lang=\"ru\"", r.read().decode())
 
+    def test_binary_assets_use_correct_mime_and_keep_security_headers(self):
+        cases = [
+            ("/assets/manrope-cyrillic.woff2", "font/woff2", b"wOF2"),
+            ("/assets/manrope-latin.woff2", "font/woff2", b"wOF2"),
+            ("/assets/testo-510.jpg", "image/jpeg", b"\xff\xd8\xff"),
+            ("/assets/testo-511.jpg", "image/jpeg", b"\xff\xd8\xff"),
+        ]
+        for path, mime, signature in cases:
+            with self.subTest(path=path), self.request(path) as r:
+                self.assertEqual(r.code, 200)
+                raw = r.read()
+                self.assertEqual(r.headers["Content-Type"], mime)
+                self.assertTrue(raw.startswith(signature))
+                self.assertEqual(int(r.headers["Content-Length"]), len(raw))
+                self.assertEqual(r.headers["X-Content-Type-Options"], "nosniff")
+                self.assertIn("default-src 'self'", r.headers["Content-Security-Policy"])
+                self.assertIn("frame-ancestors 'none'", r.headers["Content-Security-Policy"])
+
+    def test_static_asset_allowlist_rejects_unlisted_files_and_traversal(self):
+        for path in ["/assets/", "/assets/unknown.jpg", "/assets/app.js",
+                     "/assets/../app.js", "/assets/%2e%2e/.env", "/assets/testo-510.jpg/extra"]:
+            with self.subTest(path=path), self.request(path) as r:
+                self.assertEqual(r.code, 404)
+                self.assertEqual(json.load(r)["error"]["code"], "not_found")
+
     def test_foreign_origin_blocked(self):
         with self.request("/api/generate", b'{}', {"Content-Type": "application/json", "Origin": "https://evil.test"}) as r:
             self.assertEqual(r.code, 403)
