@@ -255,6 +255,7 @@ function safeResult(result) {
     string(c.validation.numeric_and_technical_check, 50) &&
     record(c.generation) &&
     (c.generation.model == null || string(c.generation.model, 300)) &&
+    (c.generation.first_model == null || string(c.generation.first_model, 300)) &&
     (c.generation.reported_cost_usd == null ||
       (Number.isFinite(c.generation.reported_cost_usd) &&
         c.generation.reported_cost_usd >= 0)) &&
@@ -949,8 +950,11 @@ function renderResult() {
     }),
   );
   const cost = c.generation.reported_cost_usd;
+  const firstModel = c.generation.first_model;
   const rows = [
-    ["Модель", c.generation.model || "Не указана"],
+    ...(firstModel
+      ? [["Модель черновика", firstModel], ["Модель исправления", c.generation.model]]
+      : [["Модель", c.generation.model || "Не указана"]]),
     [
       "Режим",
       c.generation.viewing_saved_result
@@ -958,8 +962,10 @@ function renderResult() {
         : "Новый ответ API",
     ],
     [
-      "Стоимость, сообщённая API",
-      cost == null ? "Не сообщена" : "$" + Number(cost).toFixed(6),
+      firstModel ? "Общая стоимость двух вызовов" : "Стоимость, сообщённая API",
+      cost == null
+        ? firstModel ? "Стоимость одного или обоих вызовов неизвестна" : "Не сообщена"
+        : "$" + Number(cost).toFixed(6),
     ],
     [
       "Текущее состояние",
@@ -1099,8 +1105,11 @@ function applyConfig(value) {
       "google/gemini-3-flash-preview": "Gemini 3 Flash Preview",
       "google/gemini-3.8-flash": "Gemini 3.8 Flash",
     }[config.model] || config.model || "Модель";
+    const repairNote = config.model === "google/gemini-3.8-flash"
+      ? " Если проверка отклонит черновик, Gemini 4 Argon может исправить его одним дополнительным запросом из бюджета демо."
+      : "";
     $("api-help").textContent = config.ready
-      ? modelName + " через OpenRouter. Один запрос из бюджета демо. До 3 запусков за 15 минут."
+      ? modelName + " через OpenRouter. До 3 запусков за 15 минут." + repairNote
       : budget?.unavailable_reason === "unconfirmed_cost"
         ? "Часть бюджета зарезервирована за запросами, стоимость которых ещё не подтверждена. Готовые примеры можно просматривать и скачивать."
         : "Новая генерация сейчас недоступна. Готовые примеры можно просматривать и скачивать.";
@@ -1159,7 +1168,7 @@ async function generateCard() {
   busy = true;
   updateControls();
   setView("card", true);
-  announce("Готовим карточку. Один запрос к модели.");
+  announce("Готовим черновик и проверяем его по исходным данным.");
   try {
     const data = await api("/api/generate", {
       method: "POST",

@@ -10,6 +10,7 @@ import sqlite3
 import time
 import urllib.request
 import uuid
+from dataclasses import replace
 from decimal import Decimal, ROUND_CEILING
 from contextlib import contextmanager
 from pathlib import Path
@@ -22,6 +23,7 @@ DEMO_COMPLETION_PRICE_CAPS = {
     "google/gemini-3-flash-preview": 3,
     "google/gemini-3.8-flash": 3.75,
 }
+REPAIR_MODEL = "google/gemini-4-argon"
 
 
 def micro(value):
@@ -80,7 +82,8 @@ class Budget:
                 "unavailable_reason": reason}
 
     def reserve(self, client):
-        identity = hmac.new(self.salt, client.encode(), hashlib.sha256).hexdigest()
+        identity = (hmac.new(self.salt, client.encode(), hashlib.sha256).hexdigest()
+                    if client is not None else None)
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             cap, initial = db.execute("SELECT cap,initial FROM config WHERE id=1").fetchone()
@@ -95,9 +98,10 @@ class Budget:
                     raise AppError("demo_pending_cost", "Новый запрос недоступен: часть бюджета зарезервирована по запросам без подтверждённой стоимости. Готовые примеры доступны.", 429)
                 raise AppError("demo_budget", "Бюджета демо недостаточно для нового запроса. Готовые примеры доступны.", 429)
             now = time.time()
-            count = db.execute("SELECT COUNT(*) FROM attempts WHERE client=? AND at>?", (identity,now-900)).fetchone()[0]
-            if count >= self.requests_per_window:
-                raise AppError("demo_rate_limit", f"Лимит генераций за 15 минут — {self.requests_per_window}. Готовые примеры доступны без ограничений.", 429)
+            if identity is not None:
+                count = db.execute("SELECT COUNT(*) FROM attempts WHERE client=? AND at>?", (identity,now-900)).fetchone()[0]
+                if count >= self.requests_per_window:
+                    raise AppError("demo_rate_limit", f"Лимит генераций за 15 минут — {self.requests_per_window}. Готовые примеры доступны без ограничений.", 429)
             ticket = uuid.uuid4().hex
             db.execute("INSERT INTO attempts VALUES (?,?,?,?,?)", (ticket,identity,now,RESERVE,'reserved'))
         return ticket
@@ -118,19 +122,52 @@ class Budget:
             raise AppError("demo_config", "Публичный режим требует согласованной модели и API.", 503)
         if not product.description and not any(product.specs.values()):
             raise AppError("insufficient_data", "Добавьте назначение или характеристики прибора.", issues=product.missing())
-        ticket = self.reserve(client)
+        started = time.monotonic()
+        costs = []
+        try:
+            return self._generate_attempt(product, config, client, opener, costs,
+                                          {"prompt": 1, "completion": completion_price_cap}, 64000)
+        except AppError as rejected:
+            if config.model != "google/gemini-3.8-flash" or rejected.code != "draft_rejected":
+                raise
+            remaining_time = min(config.timeout, 60) - (time.monotonic() - started)
+            if remaining_time < 1:
+                raise
+            # Диагностика может содержать куски текста модели после второго двоеточия.
+            # Для исправления нужны только поле и тип нарушения.
+            issues = [": ".join(issue.split(": ", 2)[:2])[:180] for issue in rejected.issues[:20]]
+            try:
+                repair_config = replace(config, model=REPAIR_MODEL, timeout=remaining_time)
+                card = self._generate_attempt(product, repair_config, None,
+                                              opener, costs, {"prompt": 2, "completion": 10}, 30000,
+                                              repair_issues=issues)
+            except AppError as repair_error:
+                if repair_error.code in {"demo_budget", "demo_pending_cost", "demo_size"}:
+                    raise rejected from None
+                raise
+        card["generation"].update(
+            first_model=config.model,
+            elapsed_seconds=round(time.monotonic() - started, 2),
+            reported_cost_usd=float(sum(Decimal(str(cost)) for cost in costs))
+            if all(cost is not None for cost in costs) else None,
+            cost_note="Сумма стоимости двух вызовов API; null, если стоимость хотя бы одного неизвестна.")
+        return card
+
+    def _generate_attempt(self, product, config, client, opener, costs, price_cap, max_bytes,
+                          *, repair_issues=()):
         state = {"cost": None}
         transport = opener or urllib.request.build_opener(NoRedirect())
+        ticket = self.reserve(client)
 
         class Recorder:
             def open(self, request, timeout):
                 payload = json.loads(request.data)
-                payload["provider"]["max_price"] = {"prompt": 1, "completion": completion_price_cap}
+                payload["provider"]["max_price"] = price_cap
                 payload["reasoning"] = {"effort":"low", "exclude":True}
                 request.data = json.dumps(payload,ensure_ascii=False).encode("utf-8")
-                # Не более 64 КБ входа + 3500 выходных токенов при ценовом потолке:
-                # $0.064 + $0.013125 при самом высоком потолке, с запасом до $0.10.
-                if len(request.data) > 64000:
+                # 64 КБ и $1/$3.75 для Flash, 30 КБ и $2/$10 для Argon.
+                # При 3500 выходных токенов оба предела укладываются в резерв $0.10.
+                if len(request.data) > max_bytes:
                     state["cost"] = 0
                     raise AppError("demo_size", "Слишком большой запрос для публичного демо.", 413)
                 with transport.open(request,timeout=timeout) as response:
@@ -143,10 +180,11 @@ class Budget:
                 return io.BytesIO(raw)
 
         try:
-            return generate(product,config,Recorder())
+            return generate(product, config, Recorder(), repair_issues=repair_issues)
         except AppError as exc:
             if exc.code in {"provider_auth","provider_balance","provider_rate_limit","not_configured"}:
                 state["cost"] = 0
             raise
         finally:
             self.settle(ticket,state["cost"])
+            costs.append(state["cost"])

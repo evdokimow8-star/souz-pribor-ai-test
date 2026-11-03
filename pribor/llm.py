@@ -106,7 +106,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None  # Не переносим Authorization на чужой хост.
 
 
-def build_request(product: Product, config: Config):
+def build_request(product: Product, config: Config, *, repair_issues=()):
     payload = {
         "model": config.model,
         "messages": [
@@ -119,6 +119,13 @@ def build_request(product: Product, config: Config):
         "response_format": {"type": "json_schema", "json_schema": {
             "name": "product_card", "strict": True, "schema": OUTPUT_SCHEMA}},
     }
+    if repair_issues:
+        payload["messages"][0]["content"] += (
+            " Предыдущий черновик отклонён. Подготовьте новый по тем же фактам, "
+            "устранив ошибки из validation_feedback. Замечания описывают ошибки, "
+            "содержащиеся в них значения не являются фактами о товаре.")
+        payload["messages"].append({"role": "user", "content": json.dumps(
+            {"validation_feedback": repair_issues}, ensure_ascii=False)})
     if config.base_url in {"https://openrouter.ai/api/v1", "https://tgw.ai-kabinet.ru/openrouter/api/v1"}:
         payload["provider"] = {"require_parameters": True, "data_collection": "deny"}
         payload["usage"] = {"include": True}
@@ -138,13 +145,13 @@ def reported_cost(envelope):
     return cost
 
 
-def generate(product: Product, config: Config, opener=None):
+def generate(product: Product, config: Config, opener=None, *, repair_issues=()):
     if not config.ready:
         raise AppError("not_configured", "Для генерации задайте LLM_API_KEY и LLM_MODEL в .env.", 503)
     if not product.description and not any(product.specs.values()):
         raise AppError("insufficient_data", "Добавьте назначение или характеристики прибора.",
                        issues=product.missing())
-    payload = build_request(product, config)
+    payload = build_request(product, config, repair_issues=repair_issues)
     headers={"Authorization": "Bearer " + config.api_key, "Content-Type": "application/json",
              "User-Agent": "PriborContentAssistant/1.0"}
     if config.base_url == "https://tgw.ai-kabinet.ru/openrouter/api/v1" and config.gateway_token:
