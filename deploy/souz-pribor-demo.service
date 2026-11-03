@@ -9,7 +9,7 @@ DynamicUser=yes
 WorkingDirectory=/opt/souz-pribor-demo/current
 EnvironmentFile=/etc/souz-pribor-demo.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 -B -m pribor --port 18769 --public-origin https://ai-kabinet.ru --budget-file /var/lib/souz-pribor-demo/budget.sqlite --budget-usd 0.50 --initial-spent-usd 0.017678
+ExecStart=/usr/bin/python3 -B -m pribor --port 18769 --public-origin https://ai-kabinet.ru --budget-file /var/lib/souz-pribor-demo/budget.sqlite --budget-usd 1 --initial-spent-usd 0.017678
 StateDirectory=souz-pribor-demo
 StateDirectoryMode=0700
 Restart=on-failure

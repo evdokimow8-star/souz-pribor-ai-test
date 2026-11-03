@@ -49,6 +49,20 @@ class BudgetTests(unittest.TestCase):
             self.budget.reserve('client')
         self.assertEqual(error.exception.code,'demo_rate_limit')
 
+    def test_operator_series_shares_dollar_budget_with_public_demo(self):
+        path = Path(self.temp.name) / "dollar.sqlite"
+        public = Budget(path, "1", "0.017678")
+        operator = Budget(path, "1", "0.017678", requests_per_window=10)
+        for _ in range(10):
+            operator.settle(operator.reserve("operator"), 0.003)
+        with self.assertRaises(AppError) as error:
+            operator.reserve("operator")
+        self.assertEqual(error.exception.code, "demo_rate_limit")
+        self.assertEqual(public.snapshot()["limit_usd"], 1)
+        self.assertEqual(public.snapshot()["spent_usd"], 0.047678)
+        with self.assertRaises(ValueError):
+            Budget(Path(self.temp.name) / "too-large.sqlite", "1.01")
+
     def test_unknown_cost_keeps_reservation(self):
         ticket=self.budget.reserve('client')
         self.budget.settle(ticket,None)

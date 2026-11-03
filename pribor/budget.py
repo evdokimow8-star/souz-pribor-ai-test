@@ -32,11 +32,15 @@ def micro(value):
 
 
 class Budget:
-    def __init__(self, path: Path, limit_usd="0.50", initial_spent_usd="0"):
+    def __init__(self, path: Path, limit_usd="0.50", initial_spent_usd="0", *,
+                 requests_per_window=3):
         self.path = str(path)
         limit, initial = micro(limit_usd), micro(initial_spent_usd)
-        if not 0 <= initial <= limit or limit > 500_000:
-            raise ValueError("Демо ограничено суммой до $0.50")
+        if not 0 <= initial <= limit or limit > 1_000_000:
+            raise ValueError("Демо ограничено суммой до $1")
+        if type(requests_per_window) is not int or not 1 <= requests_per_window <= 10:
+            raise ValueError("Лимит запросов за 15 минут должен быть целым числом от 1 до 10")
+        self.requests_per_window = requests_per_window
         path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             db.execute("CREATE TABLE IF NOT EXISTS config (id INTEGER PRIMARY KEY, cap INTEGER, initial INTEGER, salt TEXT)")
@@ -92,8 +96,8 @@ class Budget:
                 raise AppError("demo_budget", "Бюджета демо недостаточно для нового запроса. Готовые примеры доступны.", 429)
             now = time.time()
             count = db.execute("SELECT COUNT(*) FROM attempts WHERE client=? AND at>?", (identity,now-900)).fetchone()[0]
-            if count >= 3:
-                raise AppError("demo_rate_limit", "В демо доступно 3 генерации за 15 минут. Готовые примеры доступны без ограничений.", 429)
+            if count >= self.requests_per_window:
+                raise AppError("demo_rate_limit", f"Лимит генераций за 15 минут — {self.requests_per_window}. Готовые примеры доступны без ограничений.", 429)
             ticket = uuid.uuid4().hex
             db.execute("INSERT INTO attempts VALUES (?,?,?,?,?)", (ticket,identity,now,RESERVE,'reserved'))
         return ticket
