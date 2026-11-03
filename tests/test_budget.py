@@ -123,8 +123,8 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(self.budget.snapshot()["held_usd"], 0)
         transport.open.assert_called_once()
 
-    def test_argon_repairs_rejected_flash_and_charges_both_attempts(self):
-        config = Config("fake", "google/gemini-3.8-flash")
+    def test_argon_repairs_its_rejected_draft_and_charges_both_attempts(self):
+        config = Config("fake", "google/gemini-4-argon")
         bad = draft()
         bad["commercial"]["text"] = "Работает с Bluetooth."
         transport = Mock()
@@ -132,14 +132,18 @@ class BudgetTests(unittest.TestCase):
         card = self.budget.generate(product(), config, "client", transport)
         first, repair = [json.loads(call.args[0].data) for call in transport.open.call_args_list]
         self.assertEqual(first["model"], config.model)
-        self.assertEqual(repair["model"], "google/gemini-4-argon")
+        self.assertEqual(repair["model"], first["model"])
+        self.assertEqual(first["provider"]["max_price"], {"prompt": 2, "completion": 10})
         self.assertEqual(repair["provider"]["max_price"], {"prompt": 2, "completion": 10})
         self.assertEqual(repair["response_format"], first["response_format"])
         self.assertEqual(repair["messages"][1], first["messages"][1])
-        self.assertIn("commercial", repair["messages"][2]["content"])
-        self.assertNotIn("Bluetooth", repair["messages"][2]["content"])
+        feedback = json.loads(repair["messages"][2]["content"])
+        self.assertEqual(repair["messages"][2]["role"], "user")
+        self.assertEqual(feedback["rejected_draft"], bad)
+        self.assertIn("commercial", " ".join(feedback["validation_feedback"]))
+        self.assertNotIn("Bluetooth", " ".join(feedback["validation_feedback"]))
         self.assertEqual(card["generation"]["model"], repair["model"])
-        self.assertEqual(card["generation"]["first_model"], first["model"])
+        self.assertEqual(card["generation"]["attempt_count"], 2)
         self.assertEqual(card["generation"]["reported_cost_usd"], 0.00246)
         self.assertEqual(self.budget.snapshot()["spent_usd"], 0.020138)
         for _ in range(2):
@@ -153,8 +157,9 @@ class BudgetTests(unittest.TestCase):
         transport = Mock()
         transport.open.side_effect = [Response(envelope(bad)), Response(envelope(bad))]
         with self.assertRaises(AppError) as error:
-            self.budget.generate(product(), Config("fake", "google/gemini-3.8-flash"), "client", transport)
+            self.budget.generate(product(), Config("fake", "google/gemini-4-argon"), "client", transport)
         self.assertEqual(error.exception.code, "draft_rejected")
+        self.assertNotIn("rejected_draft", error.exception.payload()["error"])
         self.assertEqual(transport.open.call_count, 2)
         self.assertEqual(self.budget.snapshot()["spent_usd"], 0.020138)
 
@@ -167,7 +172,7 @@ class BudgetTests(unittest.TestCase):
         response = envelope(bad).replace(b'"cost": 0.00123', b'"cost": 0.09')
         transport.open.return_value = Response(response)
         with self.assertRaises(AppError) as error:
-            self.budget.generate(product(), Config("fake", "google/gemini-3.8-flash"), "client", transport)
+            self.budget.generate(product(), Config("fake", "google/gemini-4-argon"), "client", transport)
         self.assertEqual(error.exception.code, "draft_rejected")
         transport.open.assert_called_once()
         self.assertEqual(self.budget.snapshot()["spent_usd"], 0.107678)
@@ -176,9 +181,32 @@ class BudgetTests(unittest.TestCase):
     def test_timeout_keeps_reservation_no_retry(self):
         transport=Mock();transport.open.side_effect=TimeoutError()
         with self.assertRaises(AppError):
-            self.budget.generate(product(),Config('fake','google/gemini-3.8-flash'),'client',transport)
+            self.budget.generate(product(),Config('fake','google/gemini-4-argon'),'client',transport)
         self.assertEqual(self.budget.snapshot()['held_usd'],0.1)
         transport.open.assert_called_once()
+
+    def test_rejected_argon_without_known_cost_is_not_retried(self):
+        bad = draft()
+        bad["commercial"]["text"] = "Работает с Bluetooth."
+        transport = Mock()
+        transport.open.return_value = Response(envelope(bad).replace(b'"cost": 0.00123', b'"cost": null'))
+        with self.assertRaises(AppError) as error:
+            self.budget.generate(product(), Config("fake", "google/gemini-4-argon"), "client", transport)
+        self.assertEqual(error.exception.code, "draft_rejected")
+        transport.open.assert_called_once()
+        self.assertEqual(self.budget.snapshot()["held_usd"], 0.1)
+
+    def test_oversized_repair_stops_before_provider_call(self):
+        bad = draft()
+        bad["commercial"]["text"] = "X" * 30000
+        transport = Mock()
+        transport.open.return_value = Response(envelope(bad))
+        with self.assertRaises(AppError) as error:
+            self.budget.generate(product(), Config("fake", "google/gemini-4-argon"), "client", transport)
+        self.assertEqual(error.exception.code, "draft_rejected")
+        transport.open.assert_called_once()
+        self.assertEqual(self.budget.snapshot()["spent_usd"], 0.018908)
+        self.assertEqual(self.budget.snapshot()["held_usd"], 0)
 
 
 if __name__=='__main__':

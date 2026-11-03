@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .domain import AppError, Product, markdown, parse_json, validate_draft
-from .llm import Config, generate, load_env
+from .llm import Config, generate, generate_with_repair, load_env
 from .budget import Budget
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -155,10 +155,15 @@ def create_server(port=8765, config=None, public_origin=None, budget=None):
                         raise AppError("invalid_client", "Некорректный адрес клиента.", 400) from None
                     card = budget.generate(product, config, client_ip)
                 else:
-                    card = generate(product, config)
+                    card = generate_with_repair(config, lambda attempt_config, repair:
+                                                generate(product, attempt_config, repair=repair))
                 self.json({"card": card, "markdown": markdown(card)})
             except AppError as exc:
-                self.json(exc.payload(), exc.status)
+                payload = exc.payload()
+                if hasattr(exc, "attempt_count"):
+                    payload["error"].update(attempt_count=exc.attempt_count,
+                                            reported_cost_usd=exc.reported_cost_usd)
+                self.json(payload, exc.status)
             except sqlite3.Error:
                 self.json(AppError("budget_unavailable", "Учёт бюджета временно недоступен. Новая генерация заблокирована.", 503).payload(), 503)
             except (TimeoutError, OSError, ValueError):

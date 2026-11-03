@@ -1,7 +1,7 @@
 import copy
 import unittest
 
-from pribor.domain import AppError, Product, markdown, parse_json, validate_draft
+from pribor.domain import AppError, OUTPUT_SCHEMA, Product, markdown, parse_json, validate_draft
 
 
 def product():
@@ -33,6 +33,35 @@ class DomainTests(unittest.TestCase):
         self.assertEqual(result["characteristics"][2]["value"], "данных нет")
         self.assertIn("Питание: данных нет", result["missing_fields"])
         self.assertTrue(result["validation"]["requires_editor_review"])
+
+    def test_description_schema_and_validator_agree_on_two_to_five_paragraphs(self):
+        schema = OUTPUT_SCHEMA["properties"]["description_paragraphs"]
+        self.assertEqual((schema["minItems"], schema["maxItems"]), (2, 5))
+        self.assertNotIn("minLength", schema["items"]["properties"]["text"])
+        self.assertNotIn("maxLength", schema["items"]["properties"]["text"])
+        source = draft()["description_paragraphs"][0]
+        text = " ".join(p["text"] for p in draft()["description_paragraphs"])
+        for count in range(2, 6):
+            with self.subTest(count=count):
+                candidate = draft()
+                width = len(text) // count
+                candidate["description_paragraphs"] = [
+                    {"text": text[i * width:(i + 1) * width] if i < count - 1 else text[i * width:],
+                     "fact_ids": source["fact_ids"]} for i in range(count)]
+                result = validate_draft(product(), candidate)
+                self.assertTrue(800 <= len(result["seo_description"]) <= 1200)
+        for count in (1, 6):
+            candidate = draft()
+            candidate["description_paragraphs"] = [source] * count
+            self.reject(candidate)
+
+    def test_description_total_length_stays_mandatory(self):
+        for size in (799, 1201):
+            candidate = draft()
+            candidate["description_paragraphs"] = [
+                {"text": "а" * 400, "fact_ids": ["name"]},
+                {"text": "а" * (size - 402), "fact_ids": ["name"]}]
+            self.reject(candidate)
 
     def test_new_number_rejected(self):
         candidate = draft()
@@ -86,6 +115,80 @@ class DomainTests(unittest.TestCase):
         candidate = draft()
         candidate["commercial"]["text"] = "Диапазон 0...100МПа."
         self.reject(candidate)
+
+    def test_spaced_compound_units_in_queries_preserve_value_and_citation(self):
+        original = product().as_dict()
+        original["specs"]["Скорость"] = "0 ... 30 м/с"
+        original["specs"]["Момент"] = "0,5 Н·м"
+        instrument = Product.from_dict(original)
+        for value, refs in (("скорость от 0 до 30 м / с", ["spec_4"]),
+                            ("момент 0.5 Н · м", ["spec_5"])):
+            candidate = draft()
+            candidate["search_queries"][2] = {"text": value, "fact_ids": refs}
+            validate_draft(instrument, candidate)
+        for value, refs in (("скорость от 30 до 0 м / с", ["spec_4"]),
+                            ("скорость до −30 м / с", ["spec_4"]),
+                            ("скорость до 30 м", ["spec_4"]),
+                            ("скорость до 30 м / с", ["description"]),
+                            ("момент 0.5 Н · м", ["spec_4"])):
+            with self.subTest(value=value, refs=refs):
+                candidate = draft()
+                candidate["search_queries"][2] = {"text": value, "fact_ids": refs}
+                with self.assertRaises(AppError):
+                    validate_draft(instrument, candidate)
+
+    def test_fraction_spacing_does_not_allow_reversal_conversion_or_sign_change(self):
+        original = product().as_dict()
+        original["specs"]["Привод"] = "1/4 дюйма"
+        original["specs"]["Диапазон длины"] = "−1/4 ... +3/4 м"
+        instrument = Product.from_dict(original)
+        for value in ("Привод 1 / 4 дюйма.", "Диапазон от −1 / 4 до +3 / 4 м."):
+            candidate = draft()
+            candidate["commercial"] = {"text": value, "fact_ids": ["spec_4", "spec_5"]}
+            validate_draft(instrument, candidate)
+        for value in ("Привод 4 / 1 дюйма.", "Привод 0,25 дюйма.",
+                      "Привод −1 / 4 дюйма.", "Диапазон от +3 / 4 до −1 / 4 м.",
+                      "Диапазон от +1 / 4 до +3 / 4 м."):
+            with self.subTest(value=value):
+                candidate = draft()
+                candidate["commercial"] = {"text": value, "fact_ids": ["spec_4", "spec_5"]}
+                with self.assertRaises(AppError):
+                    validate_draft(instrument, candidate)
+
+    def test_explicit_unknown_feature_requires_matching_missing_field(self):
+        original = product().as_dict()
+        original["specs"]["Память"] = None
+        original["specs"]["Тип дисплея"] = None
+        instrument = Product.from_dict(original)
+        for value in ("Данных о встроенной памяти нет.",
+                      "Сведений о наличии встроенной памяти нет.",
+                      "Наличие встроенной памяти не подтверждено.",
+                      "Данных о сенсорном экране нет."):
+            with self.subTest(value=value):
+                candidate = draft()
+                candidate["commercial"] = {"text": value, "fact_ids": ["name"]}
+                validate_draft(instrument, candidate)
+        for value in ("Встроенной памяти нет.",
+                      "Прибор оснащён встроенной памятью. Данных о встроенной памяти нет.",
+                      "Данных о встроенной памяти нет, но она сохраняет измерения.",
+                      "Данных о встроенной памяти нет. Прибор имеет сенсорный экран.",
+                      "Данных о встроенной памяти на 100 значений нет.",
+                      "Данных о встроенной памяти нет. Корпус из нержавеющей стали."):
+            with self.subTest(value=value):
+                candidate = draft()
+                candidate["commercial"] = {"text": value, "fact_ids": ["name"]}
+                with self.assertRaises(AppError):
+                    validate_draft(instrument, candidate)
+        candidate = draft()
+        candidate["commercial"] = {"text": "Данных о встроенной памяти нет.", "fact_ids": ["name"]}
+        self.reject(candidate)  # Пустое питание — не основание говорить о памяти.
+        original["specs"]["Память"] = "16000 значений"
+        with self.assertRaises(AppError):
+            validate_draft(Product.from_dict(original), candidate)
+        original["specs"]["Память"] = None
+        original["description"] += " У прибора встроенная память."
+        with self.assertRaises(AppError):
+            validate_draft(Product.from_dict(original), candidate)
 
     def test_changed_ip_rejected(self):
         candidate = draft()

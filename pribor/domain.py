@@ -130,21 +130,18 @@ OUTPUT_SCHEMA = {
     "type": "object", "additionalProperties": False,
     "properties": {
         "seo_title": BLOCK_SCHEMA,
-        "description_paragraphs": {"type": "array", "minItems": 3, "maxItems": 3,
-            "items": {"type": "object", "additionalProperties": False,
-                "properties": {"text": {"type": "string", "minLength": 270, "maxLength": 360},
-                               "fact_ids": {"type": "array", "items": {"type": "string"}}},
-                "required": ["text", "fact_ids"]}},
+        "description_paragraphs": {"type": "array", "minItems": 2, "maxItems": 5,
+            "items": BLOCK_SCHEMA},
         "search_queries": {"type": "array", "items": BLOCK_SCHEMA},
         "commercial": BLOCK_SCHEMA,
     },
     "required": ["seo_title", "description_paragraphs", "search_queries", "commercial"],
 }
 
-NUMERIC_VALUE = r"[+\-−]?\d+(?:[.,]\d+)?"
+NUMERIC_VALUE = r"[+\-−]?\d+(?:[.,]\d+)?(?:\s*/\s*\d+)?"
 NUMBERS = re.compile(rf"(?<!\d){NUMERIC_VALUE}")
 TECH = re.compile(r"(?<![\w])(?:IP\d{2}|RS[- ]?\d+|USB|Bluetooth|Wi-Fi|GSM|GPRS)(?![\w])")
-UNITS = r"МПа|мПа|кПа|гПа|Па|мбар|бар|кВ|мВ|В|мА|А|кГц|Гц|м/с|мм|см|м|кг|г|°[CС]|(?i:градус(?:а|ов)?\s+Цельсия)|%"
+UNITS = r"МПа|мПа|кПа|гПа|Па|мбар|бар|кВ|мВ|В|мА|А|кГц|Гц|м\s*/\s*с|л\s*/\s*мин|Н\s*[·⋅]\s*м|мм|см|мин|м|кг|г|дюйм(?:а|ов)?|°\s*[CС]|(?i:градус(?:а|ов)?\s+Цельсия)|%"
 QUANTITY_UNIT = re.compile(rf"(?<!\d)({NUMERIC_VALUE})\s*({UNITS})(?![\w/])")
 RANGE_UNIT = re.compile(rf"(?<!\d)({NUMERIC_VALUE})\s*(?:\.\.\.|…|[–—-]|до)\s*"
                         rf"({NUMERIC_VALUE})\s*({UNITS})(?![\w/])")
@@ -164,8 +161,39 @@ FEATURES = [re.compile(p, re.IGNORECASE) for p in (
     r"переключ\w*\s+(?:рабоч\w*\s+)?режим\w*",
 )]
 
+# Только целые фразы о неизвестности двух явно соответствующих пустых полей.
+# Отсутствие данных не означает отсутствие детали: «памяти нет» не разрешается.
+UNKNOWN_FEATURE_TOPICS = (
+    (r"встроенн(?:ая|ой|ую)\s+памят(?:ь|и)",
+     re.compile(r"(?:встроенная\s+)?память|тип\s+памяти", re.IGNORECASE)),
+    (r"сенсорн(?:ый|ом|ого)\s+(?:экран(?:е|а)?|диспле(?:й|е|я))",
+     re.compile(r"(?:тип\s+)?(?:экран(?:а)?|диспле(?:й|я))", re.IGNORECASE)),
+)
+
+
+def explicit_unknown_feature_spans(product, content):
+    """Не снимает проверки иных фраз, чисел, единиц или ссылок на факты."""
+    spans = []
+    all_facts = "\n".join(product.facts().values())
+    for topic, field in UNKNOWN_FEATURE_TOPICS:
+        matching = [value for key, value in product.specs.items() if field.fullmatch(key)]
+        if not matching or any(matching) or re.search(topic, all_facts, re.IGNORECASE):
+            continue
+        unknown = re.compile(
+            rf"(?:(?:данных|сведений)\s+(?:о|об)\s+(?:наличии\s+)?{topic}\s+нет"
+            rf"|наличие\s+{topic}\s+(?:не указано|не подтверждено))", re.IGNORECASE)
+        for sentence in re.finditer(r"[^.!?;\n]+(?:[.!?;]+|$)", content):
+            value = sentence.group().strip().rstrip(".!?;").strip()
+            if unknown.fullmatch(value):
+                spans.append(sentence.span())
+    return spans
+
 
 def normalized_number(value):
+    if "/" in value:
+        numerator, denominator = value.split("/", 1)
+        # Не переводим 1/4 в 0,25 и не превращаем 4/1 в 1/4.
+        return normalized_number(numerator.strip()) + "/" + normalized_number(denominator.strip())
     number = Decimal(value.replace(",", ".").replace("−", "-"))
     exact = format(number, "f") if number else "0"
     return exact.rstrip("0").rstrip(".") if "." in exact else exact
@@ -176,7 +204,12 @@ def numbers(value):
 
 
 def normalized_unit(unit):
-    return "°C" if unit == "°С" or unit.casefold().startswith("градус") else unit
+    if unit.casefold().startswith("градус"):
+        return "°C"
+    unit = re.sub(r"\s+", "", unit).replace("⋅", "·")
+    if unit == "°С":
+        return "°C"
+    return "дюйм" if unit.startswith("дюйм") else unit
 
 
 def technical_tokens(value):
@@ -236,7 +269,10 @@ def validate_draft(product: Product, draft: dict):
                 issues.append(f"{field}: диапазон или порядок его границ не подтверждён исходными фактами")
         if PROHIBITED.search(content) and not PROHIBITED.search(source):
             issues.append(f"{field}: неподтверждённое коммерческое или техническое обещание")
-        if any(pattern.search(content) and not pattern.search(source) for pattern in FEATURES):
+        unknown_spans = explicit_unknown_feature_spans(product, content)
+        if any(not pattern.search(source) and any(
+                not any(start <= match.start() and match.end() <= end for start, end in unknown_spans)
+                for match in pattern.finditer(content)) for pattern in FEATURES):
             issues.append(f"{field}: неподтверждённая деталь конструкции или комплектации")
         for key, value in product.specs.items():
             if (value and "погрешност" in key.casefold() and

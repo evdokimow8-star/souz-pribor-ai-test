@@ -256,6 +256,7 @@ function safeResult(result) {
     record(c.generation) &&
     (c.generation.model == null || string(c.generation.model, 300)) &&
     (c.generation.first_model == null || string(c.generation.first_model, 300)) &&
+    (c.generation.attempt_count == null || [1, 2].includes(c.generation.attempt_count)) &&
     (c.generation.reported_cost_usd == null ||
       (Number.isFinite(c.generation.reported_cost_usd) &&
         c.generation.reported_cost_usd >= 0)) &&
@@ -495,6 +496,12 @@ function showError(err, focus = true) {
     const list = node("ul");
     err.issues.forEach((x) => list.append(node("li", x)));
     box.append(list);
+  }
+  if ([1, 2].includes(err.attempt_count)) {
+    const cost = Number.isFinite(err.reported_cost_usd) && err.reported_cost_usd >= 0
+      ? "$" + err.reported_cost_usd.toFixed(6)
+      : "стоимость пока неизвестна";
+    box.append(node("p", "Попыток — " + err.attempt_count + ". Расход по ответам API — " + cost + "."));
   }
   box.hidden = false;
   if (focus) {
@@ -951,8 +958,9 @@ function renderResult() {
   );
   const cost = c.generation.reported_cost_usd;
   const firstModel = c.generation.first_model;
+  const attempts = c.generation.attempt_count || (firstModel ? 2 : 1);
   const rows = [
-    ...(firstModel
+    ...(firstModel && firstModel !== c.generation.model
       ? [["Модель черновика", firstModel], ["Модель исправления", c.generation.model]]
       : [["Модель", c.generation.model || "Не указана"]]),
     [
@@ -962,11 +970,14 @@ function renderResult() {
         : "Новый ответ API",
     ],
     [
-      firstModel ? "Общая стоимость двух вызовов" : "Стоимость, сообщённая API",
+      attempts === 2 ? "Общая стоимость двух попыток" : "Стоимость, сообщённая API",
       cost == null
-        ? firstModel ? "Стоимость одного или обоих вызовов неизвестна" : "Не сообщена"
+        ? attempts === 2 ? "Стоимость одной или обеих попыток неизвестна" : "Не сообщена"
         : "$" + Number(cost).toFixed(6),
     ],
+    ["Попытки", attempts === 2 ? "2 — модель исправила черновик после проверки" : "1"],
+    ["Время генерации", Number.isFinite(c.generation.elapsed_seconds)
+      ? c.generation.elapsed_seconds + " с" : "Не указано"],
     [
       "Текущее состояние",
       manual
@@ -1104,9 +1115,10 @@ function applyConfig(value) {
     const modelName = {
       "google/gemini-3-flash-preview": "Gemini 3 Flash Preview",
       "google/gemini-3.8-flash": "Gemini 3.8 Flash",
+      "google/gemini-4-argon": "Gemini 4 Argon",
     }[config.model] || config.model || "Модель";
-    const repairNote = config.model === "google/gemini-3.8-flash"
-      ? " Если проверка отклонит черновик, Gemini 4 Argon может исправить его одним дополнительным запросом из бюджета демо."
+    const repairNote = config.model === "google/gemini-4-argon"
+      ? " При замечаниях проверки эта же модель может один раз исправить текст. Обе попытки оплачиваются из бюджета демо."
       : "";
     $("api-help").textContent = config.ready
       ? modelName + " через OpenRouter. До 3 запусков за 15 минут." + repairNote
@@ -1122,7 +1134,7 @@ function applyConfig(value) {
       : "";
   } else {
     $("api-help").textContent = config.ready
-      ? "Один платный запрос к настроенному API. Автоматических повторов нет."
+      ? "Генерация через настроенную модель. Argon может один раз исправить отклонённый текст. Каждый вызов оплачивается по тарифу API."
       : "Готовые примеры работают без ключа. Для новой генерации настройте API в .env и перезапустите локальный сервис.";
     $("budget-details").textContent =
       "Просмотр сохранённых примеров не обращается к модели. Новая генерация — отдельный запрос.";

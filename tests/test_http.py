@@ -3,9 +3,12 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from unittest.mock import Mock, patch
 
-from pribor.llm import Config
+from pribor.llm import ARGON_MODEL, Config, generate
 from pribor.server import create_server
+from tests.test_domain import draft, product
+from tests.test_llm import Response, envelope
 
 
 class HTTPTests(unittest.TestCase):
@@ -97,6 +100,33 @@ class HTTPTests(unittest.TestCase):
     def test_payload_size(self):
         with self.request("/api/generate", b' ' * 32769, {"Content-Type": "application/json"}) as r:
             self.assertEqual(r.code, 413)
+
+    def test_local_argon_retries_and_reports_cost_without_exposing_rejected_draft(self):
+        bad = draft()
+        bad["commercial"]["text"] = "Работает с Bluetooth."
+        transport = Mock()
+        transport.open.side_effect = [Response(envelope(bad)), Response(envelope(bad))]
+        raw = json.dumps(product().as_dict(), ensure_ascii=False).encode("utf-8")
+        with create_server(0, Config("fake", ARGON_MODEL)) as server:
+            worker = threading.Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            request = urllib.request.Request(f"http://127.0.0.1:{server.server_port}/api/generate",
+                data=raw, headers={"Content-Type": "application/json"})
+            try:
+                with patch("pribor.server.generate", side_effect=lambda product, config, repair:
+                           generate(product, config, transport, repair=repair)):
+                    with self.assertRaises(urllib.error.HTTPError) as response:
+                        urllib.request.urlopen(request, timeout=3)
+                    with response.exception as error:
+                        self.assertEqual(error.code, 422)
+                        payload = json.load(error)["error"]
+            finally:
+                server.shutdown()
+                worker.join(timeout=3)
+        self.assertEqual(transport.open.call_count, 2)
+        self.assertEqual(payload["attempt_count"], 2)
+        self.assertEqual(payload["reported_cost_usd"], 0.00246)
+        self.assertNotIn("rejected_draft", payload)
 
 
 if __name__ == "__main__":

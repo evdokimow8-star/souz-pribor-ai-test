@@ -10,20 +10,20 @@ import sqlite3
 import time
 import urllib.request
 import uuid
-from dataclasses import replace
 from decimal import Decimal, ROUND_CEILING
 from contextlib import contextmanager
 from pathlib import Path
 
 from .domain import AppError, parse_json
-from .llm import NoRedirect, generate, reported_cost
+from .llm import (ARGON_MAX_BYTES, ARGON_MODEL, ARGON_PRICE_CAP, NoRedirect, generate,
+                  generate_with_repair, reported_cost)
 
 RESERVE = 100_000  # $0.10; консервативно больше верхней границы одного запроса.
-DEMO_COMPLETION_PRICE_CAPS = {
-    "google/gemini-3-flash-preview": 3,
-    "google/gemini-3.8-flash": 3.75,
+DEMO_REQUEST_LIMITS = {
+    "google/gemini-3-flash-preview": ({"prompt": 1, "completion": 3}, 64000),
+    "google/gemini-3.8-flash": ({"prompt": 1, "completion": 3.75}, 64000),
+    ARGON_MODEL: (ARGON_PRICE_CAP, ARGON_MAX_BYTES),
 }
-REPAIR_MODEL = "google/gemini-4-argon"
 
 
 def micro(value):
@@ -117,44 +117,19 @@ class Budget:
     def generate(self, product, config, client, opener=None):
         direct = config.base_url == "https://openrouter.ai/api/v1"
         gateway = config.base_url == "https://tgw.ai-kabinet.ru/openrouter/api/v1" and bool(config.gateway_token)
-        completion_price_cap = DEMO_COMPLETION_PRICE_CAPS.get(config.model)
-        if not (direct or gateway) or completion_price_cap is None:
+        limits = DEMO_REQUEST_LIMITS.get(config.model)
+        if not (direct or gateway) or limits is None:
             raise AppError("demo_config", "Публичный режим требует согласованной модели и API.", 503)
         if not product.description and not any(product.specs.values()):
             raise AppError("insufficient_data", "Добавьте назначение или характеристики прибора.", issues=product.missing())
-        started = time.monotonic()
-        costs = []
-        try:
-            return self._generate_attempt(product, config, client, opener, costs,
-                                          {"prompt": 1, "completion": completion_price_cap}, 64000)
-        except AppError as rejected:
-            if config.model != "google/gemini-3.8-flash" or rejected.code != "draft_rejected":
-                raise
-            remaining_time = min(config.timeout, 60) - (time.monotonic() - started)
-            if remaining_time < 1:
-                raise
-            # Диагностика может содержать куски текста модели после второго двоеточия.
-            # Для исправления нужны только поле и тип нарушения.
-            issues = [": ".join(issue.split(": ", 2)[:2])[:180] for issue in rejected.issues[:20]]
-            try:
-                repair_config = replace(config, model=REPAIR_MODEL, timeout=remaining_time)
-                card = self._generate_attempt(product, repair_config, None,
-                                              opener, costs, {"prompt": 2, "completion": 10}, 30000,
-                                              repair_issues=issues)
-            except AppError as repair_error:
-                if repair_error.code in {"demo_budget", "demo_pending_cost", "demo_size"}:
-                    raise rejected from None
-                raise
-        card["generation"].update(
-            first_model=config.model,
-            elapsed_seconds=round(time.monotonic() - started, 2),
-            reported_cost_usd=float(sum(Decimal(str(cost)) for cost in costs))
-            if all(cost is not None for cost in costs) else None,
-            cost_note="Сумма стоимости двух вызовов API; null, если стоимость хотя бы одного неизвестна.")
-        return card
+        def attempt(attempt_config, repair):
+            return self._generate_attempt(product, attempt_config, client if repair is None else None,
+                                          opener, *limits, repair=repair)
 
-    def _generate_attempt(self, product, config, client, opener, costs, price_cap, max_bytes,
-                          *, repair_issues=()):
+        return generate_with_repair(config, attempt)
+
+    def _generate_attempt(self, product, config, client, opener, price_cap, max_bytes,
+                          *, repair=None):
         state = {"cost": None}
         transport = opener or urllib.request.build_opener(NoRedirect())
         ticket = self.reserve(client)
@@ -180,11 +155,11 @@ class Budget:
                 return io.BytesIO(raw)
 
         try:
-            return generate(product, config, Recorder(), repair_issues=repair_issues)
+            return generate(product, config, Recorder(), repair=repair)
         except AppError as exc:
-            if exc.code in {"provider_auth","provider_balance","provider_rate_limit","not_configured"}:
+            if exc.code in {"provider_auth", "provider_balance", "provider_rate_limit", "not_configured", "demo_size"}:
                 state["cost"] = 0
+            exc.reported_cost_usd = state["cost"]
             raise
         finally:
             self.settle(ticket,state["cost"])
-            costs.append(state["cost"])

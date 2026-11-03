@@ -346,8 +346,11 @@ def inspect_generation(page, network, sample, out, width):
     expect(page.locator("#generate")).to_be_disabled()
     screenshot(page, out, width, "loading-viewport")
     network.finish({"error": {"message": "Синтетическая ошибка API. Сохранённый результат доступен.",
-                              "issues": []}}, status=503)
+                              "issues": [], "attempt_count": 2,
+                              "reported_cost_usd": 0.00246}}, status=503)
     expect(page.locator("#error")).to_contain_text("Синтетическая ошибка API")
+    expect(page.locator("#error")).to_contain_text("Попыток — 2")
+    expect(page.locator("#error")).to_contain_text("$0.002460")
     expect(page.locator("#generate")).to_be_enabled()
     show_view(page, "card")
     expect(page.locator("#result")).to_be_visible()
@@ -358,7 +361,8 @@ def inspect_generation(page, network, sample, out, width):
     fixture = copy.deepcopy(sample)
     fixture["card"]["commercial"] = GENERATED_MARKER
     fixture["card"]["generation"].update({"viewing_saved_result": False,
-        "mode": "live_api", "model": "synthetic-browser-test", "reported_cost_usd": 0})
+        "mode": "live_api", "model": "synthetic-browser-test", "reported_cost_usd": 0.012345,
+        "attempt_count": 2, "elapsed_seconds": 21.5})
     fixture["markdown"] = sample["markdown"] + "\n\n" + GENERATED_MARKER + "\n"
     show_view(page, "data")
     page.locator("#generate").click()
@@ -370,6 +374,9 @@ def inspect_generation(page, network, sample, out, width):
     expect(page.locator("#generate")).to_be_enabled()
     expect(page.locator("#stale-notice")).to_be_hidden()
     expect(page.locator("#error")).to_be_hidden()
+    expect(page.locator("#request-details")).to_contain_text("Общая стоимость двух попыток")
+    expect(page.locator("#request-details")).to_contain_text("$0.012345")
+    expect(page.locator("#request-details")).to_contain_text("21.5 с")
     assert page.evaluate("""()=>{
         const active=document.activeElement;
         return !!active && active!==document.body &&
