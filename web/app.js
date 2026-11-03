@@ -1,6 +1,7 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
 const EXAMPLES = ["testo-510", "testo-511"];
+const EXAMPLE_MODEL = "google/gemini-4-argon";
 const CUSTOM = "custom";
 const KEYS = [...EXAMPLES, CUSTOM];
 const STORAGE = "pribor-studio-workspace";
@@ -1032,7 +1033,8 @@ async function refreshStoredDraft(key) {
 function isOldSample(result) {
   return (
     result?.card.generation.viewing_saved_result === true &&
-    result.card.generation.editor_reviewed !== true
+    (result.card.generation.editor_reviewed !== true ||
+      result.card.generation.model !== EXAMPLE_MODEL)
   );
 }
 async function selectExample(key, focus = true) {
@@ -1078,7 +1080,8 @@ async function selectExample(key, focus = true) {
       !!sample &&
       (!e.result ||
         (isOldSample(e.result) &&
-          sample.card.generation.editor_reviewed === true));
+          sample.card.generation.editor_reviewed === true &&
+          (!e.edits || e.result.card.generation.model === sample.card.generation.model)));
     if (needsResult)
       e.result = {
         card: clone(sample.card),

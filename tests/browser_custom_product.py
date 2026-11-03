@@ -35,6 +35,15 @@ def verify_saved_sample_migration(page, context, url):
     endpoint = "/api/examples/testo-510"
     sample = page.request.get(url + endpoint).json()
     sample["card"]["generation"]["editor_reviewed"] = True
+    assert sample["card"]["generation"]["model"] == "google/gemini-4-argon"
+    edit_workspace(page, """state => {
+        const generation = state.entries['testo-510'].result.card.generation;
+        generation.model = 'google/gemini-3-flash-preview';
+        generation.editor_reviewed = true;
+    }""")
+    page.reload(wait_until="networkidle")
+    generation = json.loads(page.evaluate(READ_WORKSPACE))["entries"]["testo-510"]["result"]["card"]["generation"]
+    assert generation["model"] == "google/gemini-4-argon"
     writer = context.new_page()
     writer.goto(url + "/", wait_until="networkidle")
     edit_workspace(page, """state => {
