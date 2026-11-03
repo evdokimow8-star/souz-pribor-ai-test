@@ -1095,8 +1095,12 @@ function applyConfig(value) {
   config = value || { ready: false };
   if (config.public_demo) {
     const budget = config.budget;
+    const modelName = {
+      "google/gemini-3-flash-preview": "Gemini 3 Flash Preview",
+      "google/gemini-3.8-flash": "Gemini 3.8 Flash",
+    }[config.model] || config.model || "Модель";
     $("api-help").textContent = config.ready
-      ? "Gemini 3 Flash через OpenRouter. Один запрос из бюджета демо. До 3 запусков за 15 минут."
+      ? modelName + " через OpenRouter. Один запрос из бюджета демо. До 3 запусков за 15 минут."
       : budget?.unavailable_reason === "unconfirmed_cost"
         ? "Часть бюджета зарезервирована за запросами, стоимость которых ещё не подтверждена. Готовые примеры можно просматривать и скачивать."
         : "Новая генерация сейчас недоступна. Готовые примеры можно просматривать и скачивать.";

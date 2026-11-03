@@ -94,6 +94,20 @@ class BudgetTests(unittest.TestCase):
             self.budget.generate(product(),Config('fake','google/gemini-3-flash-preview'),'client',transport)
         self.assertAlmostEqual(self.budget.snapshot()['spent_usd'],0.017678+0.00123)
 
+    def test_gemini_38_uses_its_price_cap_and_preserves_budget(self):
+        transport = Mock()
+        transport.open.return_value = Response(envelope())
+        model = "google/gemini-3.8-flash"
+        card = self.budget.generate(product(), Config("fake", model), "client", transport)
+        request = transport.open.call_args.args[0]
+        payload = json.loads(request.data)
+        self.assertEqual(payload["model"], model)
+        self.assertEqual(payload["provider"]["max_price"], {"prompt": 1, "completion": 3.75})
+        self.assertEqual(payload["response_format"]["type"], "json_schema")
+        self.assertEqual(card["generation"]["model"], model)
+        self.assertEqual(self.budget.snapshot()["limit_usd"], 0.5)
+        self.assertEqual(self.budget.snapshot()["held_usd"], 0)
+
     def test_timeout_keeps_reservation_no_retry(self):
         transport=Mock();transport.open.side_effect=TimeoutError()
         with self.assertRaises(AppError):

@@ -18,6 +18,10 @@ from .domain import AppError, parse_json
 from .llm import NoRedirect, generate, reported_cost
 
 RESERVE = 100_000  # $0.10; консервативно больше верхней границы одного запроса.
+DEMO_COMPLETION_PRICE_CAPS = {
+    "google/gemini-3-flash-preview": 3,
+    "google/gemini-3.8-flash": 3.75,
+}
 
 
 def micro(value):
@@ -105,7 +109,8 @@ class Budget:
     def generate(self, product, config, client, opener=None):
         direct = config.base_url == "https://openrouter.ai/api/v1"
         gateway = config.base_url == "https://tgw.ai-kabinet.ru/openrouter/api/v1" and bool(config.gateway_token)
-        if not (direct or gateway) or config.model != "google/gemini-3-flash-preview":
+        completion_price_cap = DEMO_COMPLETION_PRICE_CAPS.get(config.model)
+        if not (direct or gateway) or completion_price_cap is None:
             raise AppError("demo_config", "Публичный режим требует согласованной модели и API.", 503)
         if not product.description and not any(product.specs.values()):
             raise AppError("insufficient_data", "Добавьте назначение или характеристики прибора.", issues=product.missing())
@@ -116,11 +121,11 @@ class Budget:
         class Recorder:
             def open(self, request, timeout):
                 payload = json.loads(request.data)
-                payload["provider"]["max_price"] = {"prompt":1, "completion":3}
+                payload["provider"]["max_price"] = {"prompt": 1, "completion": completion_price_cap}
                 payload["reasoning"] = {"effort":"low", "exclude":True}
                 request.data = json.dumps(payload,ensure_ascii=False).encode("utf-8")
                 # Не более 64 КБ входа + 3500 выходных токенов при ценовом потолке:
-                # верхняя оценка < $0.10, включая запас на служебные токены.
+                # $0.064 + $0.013125 при самом высоком потолке, с запасом до $0.10.
                 if len(request.data) > 64000:
                     state["cost"] = 0
                     raise AppError("demo_size", "Слишком большой запрос для публичного демо.", 413)
