@@ -1,7 +1,9 @@
 """Один вызов API. Без скрытых повторов и подмены результата шаблоном."""
 from __future__ import annotations
 
+import http.client
 import json
+import math
 import os
 import socket
 import time
@@ -12,6 +14,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .domain import AppError, OUTPUT_SCHEMA, Product, parse_json, validate_draft
+
+MAX_COST_USD = (2**53 - 1) / 1_000_000  # Безопасный предел целого числа микродолларов для JSON.
 
 SYSTEM_PROMPT = """Вы — технический редактор B2B-магазина контрольно-измерительных приборов.
 Подготовьте русский черновик товарной карточки исключительно по предоставленному facts.
@@ -40,7 +44,11 @@ SEO-заголовок: не более 70 символов, включая пр
 Не используйте оценочные добавки «стандартные условия работы», «профессиональный
 мониторинг», «необходимый набор функций». Описывайте подтверждённые действия прибора.
 Поисковые запросы: 3–5 разных естественных фраз, без придуманных свойств и частотности.
-commercial: коротко укажите подтверждённую аудиторию/задачу и что уточнить у покупателя.
+commercial: коротко укажите, кому подходит прибор и какую подтверждённую задачу он решает.
+Если конкретная аудитория не указана, назовите её через задачу («для тех, кому нужно измерять…»),
+не предполагая профессию или отрасль. При нехватке сведений явно обозначьте, что нужно уточнить.
+В каждом разделе оставляйте только утверждения, которые следуют из конкретных facts.
+Не добавляйте неподтверждённые технические детали, включая органы управления, режимы и действия пользователя.
 Недостающие характеристики не достраивайте. Используйте только обычный текст, без HTML,
 Markdown, ссылок или пояснений вокруг JSON. Верните ровно JSON по предоставленной схеме.
 """
@@ -117,6 +125,19 @@ def build_request(product: Product, config: Config):
     return payload
 
 
+def reported_cost(envelope):
+    """Стоимость из ответа API или None, если её нельзя подтвердить."""
+    usage = envelope.get("usage") if isinstance(envelope, dict) else None
+    cost = usage.get("cost") if isinstance(usage, dict) else None
+    if isinstance(cost, bool) or not isinstance(cost, (int, float)) or cost < 0:
+        return None
+    if isinstance(cost, float) and not math.isfinite(cost):
+        return None
+    if cost > MAX_COST_USD:
+        return None
+    return cost
+
+
 def generate(product: Product, config: Config, opener=None):
     if not config.ready:
         raise AppError("not_configured", "Для генерации задайте LLM_API_KEY и LLM_MODEL в .env.", 503)
@@ -148,6 +169,8 @@ def generate(product: Product, config: Config, opener=None):
         raise AppError("provider_error", "API временно недоступен или не поддерживает эту схему.", 502) from None
     except (TimeoutError, socket.timeout):
         raise AppError("provider_timeout", "API не ответил вовремя. Автоповтор отключён: исход неизвестен.", 504) from None
+    except http.client.HTTPException:
+        raise AppError("incomplete_response", "Связь с API прервалась во время получения ответа.", 502) from None
     except (urllib.error.URLError, OSError):
         raise AppError("provider_network", "Не удалось связаться с API. Проверьте соединение.", 502) from None
     try:
@@ -156,6 +179,8 @@ def generate(product: Product, config: Config, opener=None):
         raise AppError("invalid_model_output", "API вернул некорректный JSON.", 502) from None
     try:
         choice = envelope["choices"][0]
+        if not isinstance(choice, dict):
+            raise ValueError()
         if choice.get("finish_reason") != "stop":
             raise AppError("incomplete_response", "Модель не завершила ответ. Черновик не принят.", 502)
         content = choice["message"]["content"]
@@ -168,10 +193,7 @@ def generate(product: Product, config: Config, opener=None):
     except AppError:
         raise AppError("invalid_model_output", "Модель вернула некорректный JSON.", 502) from None
     card = validate_draft(product, draft)
-    usage = envelope.get("usage") or {}
-    cost = usage.get("cost") if isinstance(usage, dict) else None
-    if isinstance(cost, bool) or not isinstance(cost, (int, float)) or cost < 0:
-        cost = None
+    cost = reported_cost(envelope)
     card["generation"] = {"mode": "live_api", "model": config.model,
                           "elapsed_seconds": round(time.monotonic() - started, 2),
                           "reported_cost_usd": cost,

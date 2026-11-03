@@ -49,7 +49,12 @@ class DomainTests(unittest.TestCase):
         original["specs"]["Рабочая температура"] = "0 ... +50 °C"
         instrument = Product.from_dict(original)
         candidate = draft()
-        for text in ("Температура до −50 °C.", "Диапазон давления до 50 гПа."):
+        for text in ("Температура до −50 °C.", "Диапазон давления до 50 гПа.",
+                     "Давление от 100 до 0 гПа.", "Температура от 50 °C до 0 °C.",
+                     "Температура от 50 до 0 градусов Цельсия.",
+                     "Корпус из нержавеющей стали.",
+                     "Прибор оснащён встроенной памятью и сенсорным экраном.",
+                     "Все операции по настройке высоты и переключению режимов выполняет пользователь."):
             with self.subTest(text=text):
                 candidate["commercial"] = {"text": text, "fact_ids": ["spec_1", "spec_4"]}
                 with self.assertRaises(AppError) as error:
@@ -58,6 +63,18 @@ class DomainTests(unittest.TestCase):
         candidate["commercial"] = {"text": "Давление от 0 гПа до 100 гПа. Температура до 50 °C.",
                                    "fact_ids": ["spec_1", "spec_4"]}
         validate_draft(instrument, candidate)
+
+    def test_name_must_fit_the_title_before_generation(self):
+        self.assertEqual(len(Product.from_dict({"name": "а" * 70}).name), 70)
+        with self.assertRaises(AppError) as error:
+            Product.from_dict({"name": "а" * 71})
+        self.assertEqual(error.exception.code, "invalid_input")
+
+    def test_json_rejects_unpaired_surrogates_in_keys_and_values(self):
+        for raw in (r'{"name":"\ud800"}', r'{"\ud800":"name"}'):
+            with self.subTest(raw=raw), self.assertRaises(AppError):
+                parse_json(raw)
+        self.assertEqual(parse_json(r'{"name":"\ud83d\ude00"}')["name"], "😀")
 
     def test_russian_preposition_is_not_a_volt_unit(self):
         candidate = draft()

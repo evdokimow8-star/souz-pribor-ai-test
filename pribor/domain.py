@@ -28,8 +28,11 @@ def parse_json(raw: str):
         return result
 
     try:
-        return json.loads(raw, object_pairs_hook=unique,
-                          parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+        decoded = json.loads(raw, object_pairs_hook=unique,
+                             parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+        # JSON escape sequences can decode to unpaired UTF-16 surrogates.
+        json.dumps(decoded, ensure_ascii=False).encode("utf-8")
+        return decoded
     except (ValueError, TypeError, RecursionError):
         raise AppError("invalid_json", "Некорректный JSON. Проверьте кавычки, запятые и ключи.") from None
 
@@ -63,7 +66,7 @@ class Product:
         extra = set(data) - {"name", "manufacturer", "specs", "description", "source_url", "notes"}
         if extra:
             raise AppError("invalid_input", "Неизвестные поля: " + ", ".join(sorted(extra)))
-        name = text(data.get("name"), "name", 160)
+        name = text(data.get("name"), "Название прибора", 70)
         manufacturer = text(data.get("manufacturer", ""), "manufacturer", 160, True)
         description = text(data.get("description", ""), "description", 6000, True)
         specs = data.get("specs", {})
@@ -141,15 +144,24 @@ OUTPUT_SCHEMA = {
 NUMERIC_VALUE = r"[+\-−]?\d+(?:[.,]\d+)?"
 NUMBERS = re.compile(rf"(?<!\d){NUMERIC_VALUE}")
 TECH = re.compile(r"(?<![\w])(?:IP\d{2}|RS[- ]?\d+|USB|Bluetooth|Wi-Fi|GSM|GPRS)(?![\w])")
-UNITS = r"МПа|мПа|кПа|гПа|Па|мбар|бар|кВ|мВ|В|мА|А|кГц|Гц|м/с|мм|см|м|кг|г|°[CС]|%"
+UNITS = r"МПа|мПа|кПа|гПа|Па|мбар|бар|кВ|мВ|В|мА|А|кГц|Гц|м/с|мм|см|м|кг|г|°[CС]|(?i:градус(?:а|ов)?\s+Цельсия)|%"
 QUANTITY_UNIT = re.compile(rf"(?<!\d)({NUMERIC_VALUE})\s*({UNITS})(?![\w/])")
 RANGE_UNIT = re.compile(rf"(?<!\d)({NUMERIC_VALUE})\s*(?:\.\.\.|…|[–—-]|до)\s*"
                         rf"({NUMERIC_VALUE})\s*({UNITS})(?![\w/])")
+ORDERED_RANGE = re.compile(
+    rf"(?<!\d)({NUMERIC_VALUE})\s*(?:({UNITS})\s*)?(?:\.\.\.|…|[–—-]|(?i:до))\s*"
+    rf"({NUMERIC_VALUE})\s*({UNITS})(?![\w/])"
+)
 PROHIBITED = re.compile(r"(?:гарантированн|лучший|самый точный|высок\w* точн|минимизир|сертифицир|взрывозащищ|"
                         r"в наличии|бесплатн\w* доставк|срок поставки)", re.IGNORECASE)
 FEATURES = [re.compile(p, re.IGNORECASE) for p in (
     r"жидкокристал|\bLCD\b|\bЖКИ?\b", r"\bOLED\b", r"\bLED\b|светодиодн",
     r"приобрета\w* отдельно|не входит в (?:стандартн\w* )?комплект|не входит в (?:стандартн\w* )?поставку",
+    r"встроенн?\w*\s+(?:памят\w*|накопител\w*)",
+    r"сенсорн\w*\s+(?:экран\w*|диспле\w*)|(?:экран\w*|диспле\w*)\s+сенсорн\w*\s+тип\w*",
+    r"нержавеющ\w*\s+стал\w*",
+    r"алюминиев\w*\s+корпус\w*|корпус\w*\s+из\s+алюмини\w*",
+    r"переключ\w*\s+(?:рабоч\w*\s+)?режим\w*",
 )]
 
 
@@ -164,7 +176,7 @@ def numbers(value):
 
 
 def normalized_unit(unit):
-    return "°C" if unit == "°С" else unit
+    return "°C" if unit == "°С" or unit.casefold().startswith("градус") else unit
 
 
 def technical_tokens(value):
@@ -177,6 +189,14 @@ def quantities(value):
     for left, right, unit in RANGE_UNIT.findall(value):
         result.update((normalized_number(n), normalized_unit(unit)) for n in (left, right))
     return result
+
+
+def ordered_ranges(value):
+    return {
+        (normalized_number(left), normalized_unit(left_unit or unit),
+         normalized_number(right), normalized_unit(unit))
+        for left, left_unit, right, unit in ORDERED_RANGE.findall(value)
+    }
 
 
 def validate_draft(product: Product, draft: dict):
@@ -212,6 +232,8 @@ def validate_draft(product: Product, draft: dict):
             if unsupported:
                 details = ", ".join(f"{number} {unit}" for number, unit in sorted(unsupported))
                 issues.append(f"{field}: величины отсутствуют в исходных фактах: {details}")
+            if ordered_ranges(content) - ordered_ranges(source):
+                issues.append(f"{field}: диапазон или порядок его границ не подтверждён исходными фактами")
         if PROHIBITED.search(content) and not PROHIBITED.search(source):
             issues.append(f"{field}: неподтверждённое коммерческое или техническое обещание")
         if any(pattern.search(content) and not pattern.search(source) for pattern in FEATURES):
@@ -272,5 +294,7 @@ def markdown(card):
         lines.extend(f"- {s}" for s in card["missing_fields"] + card["warnings"])
     if card["source_url"]:
         lines += ["", "Источник: " + card["source_url"]]
+    if card.get("generation", {}).get("editor_reviewed"):
+        lines += ["", "Пример подготовлен на основе ответа ИИ и вычитан редактором."]
     lines += ["", "Черновик: требуется проверка редактором.", ""]
     return "\n".join(lines)

@@ -1,3 +1,4 @@
+import http.client
 import io
 import json
 import socket
@@ -23,6 +24,30 @@ def envelope(content=None, finish="stop"):
 class LLMTests(unittest.TestCase):
     def setUp(self):
         self.config = Config("not-a-real-key", "test-model")
+
+    def test_malformed_choice_is_an_api_error(self):
+        for choice in (None, 1, [], "unexpected"):
+            with self.subTest(choice=choice):
+                client = Mock()
+                client.open.return_value = Response(json.dumps({"choices": [choice]}).encode())
+                with self.assertRaises(AppError) as error:
+                    generate(product(), self.config, client)
+                self.assertEqual((error.exception.code, error.exception.status), ("invalid_model_output", 502))
+
+    def test_infinite_provider_cost_is_unknown_and_serializable(self):
+        client = Mock()
+        client.open.return_value = Response(envelope().replace(b'"cost": 0.00123', b'"cost": 1e999'))
+        card = generate(product(), self.config, client)
+        self.assertIsNone(card["generation"]["reported_cost_usd"])
+        json.dumps(card, allow_nan=False)
+
+    def test_truncated_http_body_is_an_api_error(self):
+        client = Mock()
+        client.open.side_effect = http.client.IncompleteRead(b"partial")
+        with self.assertRaises(AppError) as error:
+            generate(product(), self.config, client)
+        self.assertEqual((error.exception.code, error.exception.status), ("incomplete_response", 502))
+        client.open.assert_called_once()
 
     def test_exactly_one_request_and_reported_cost(self):
         client = Mock()

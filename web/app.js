@@ -3,21 +3,29 @@ const $ = (id) => document.getElementById(id);
 const EXAMPLES = ["testo-510", "testo-511"];
 const CUSTOM = "custom";
 const KEYS = [...EXAMPLES, CUSTOM];
-const STORAGE = "pribor-studio-workspace-v2";
+const STORAGE = "pribor-studio-workspace";
 const STORAGE_LIMIT = 800000;
 const wide = matchMedia("(min-width: 1000px)");
 const samples = new Map();
+const pendingDraftFields = new Map();
+const storedDraftBaselines = new Map();
+const storageWarning = $("storage-warning").textContent;
+let pendingSelection = null;
+let storageWriteQueued = false;
+let storageWriteRequested = false;
+let workspaceDatabase = null;
 let workspace = { version: 2, selected: "testo-510", entries: {} };
 let config = { ready: false },
   activeView = "card",
   inputMode = "form";
 let busy = false,
-  loadingExample = false,
+  loadingExample = true,
   storageAvailable = true,
   formInvalid = false;
 let toastTimer,
   generationError = false;
 const entry = () => workspace.entries[workspace.selected];
+const charCount = (value) => [...value].length;
 const blankProduct = () => ({
   name: "",
   manufacturer: "",
@@ -162,12 +170,14 @@ function parseProduct(raw, allowIncomplete = false) {
     throw new Error("Неизвестные поля: " + extra.join(", ") + ".");
   function text(v, label, max, required = false) {
     if (v == null && !required) return "";
-    if (typeof v !== "string" || v.length > max)
+    if (typeof v !== "string" || charCount(v) > max)
       throw new Error(
         "Поле «" + label + "»: нужен текст до " + max + " символов.",
       );
     if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(v))
       throw new Error("Уберите служебные символы в поле «" + label + "».");
+    if (/[\uD800-\uDFFF]/u.test(v))
+      throw new Error("Исправьте повреждённый символ в поле «" + label + "».");
     if (required && !v.trim())
       throw new Error("Заполните поле «" + label + "».");
     return v.trim();
@@ -209,7 +219,8 @@ function parseProduct(raw, allowIncomplete = false) {
 function safeResult(result) {
   const record = (v) =>
     v !== null && typeof v === "object" && !Array.isArray(v);
-  const string = (v, max = 10000) => typeof v === "string" && v.length <= max;
+  const string = (v, max = 10000) =>
+    typeof v === "string" && charCount(v) <= max;
   const strings = (v, max = 50, chars = 10000) =>
     Array.isArray(v) && v.length <= max && v.every((s) => string(s, chars));
   const block = (v) =>
@@ -262,62 +273,198 @@ function safeResult(result) {
     block(c.evidence.draft.commercial)
   );
 }
-function restoreWorkspace() {
-  try {
-    const raw = localStorage.getItem(STORAGE);
-    if (!raw) return;
-    if (raw.length > STORAGE_LIMIT) throw new Error("Размер");
-    const saved = JSON.parse(raw);
+function parseWorkspace(raw) {
+  if (!raw) return;
+  if (raw.length > STORAGE_LIMIT) throw new Error("Размер");
+  const saved = JSON.parse(raw);
+  if (
+    saved.version !== 2 ||
+    !KEYS.includes(saved.selected) ||
+    !saved.entries ||
+    typeof saved.entries !== "object"
+  )
+    return;
+  const clean = {};
+  for (const key of KEYS) {
+    const e = saved.entries[key];
+    if (!e || typeof e.raw !== "string") continue;
+    clean[key] = {
+      raw: e.raw,
+      result: safeResult(e.result) ? e.result : null,
+      edits: null,
+      mode: e.mode === "json" ? "json" : "form",
+    };
     if (
-      saved.version !== 2 ||
-      !KEYS.includes(saved.selected) ||
-      !saved.entries ||
-      typeof saved.entries !== "object"
+      e.edits &&
+      typeof e.edits.seo_title === "string" &&
+      typeof e.edits.seo_description === "string" &&
+      typeof e.edits.commercial === "string" &&
+      charCount(e.edits.seo_title) <= 70 &&
+      charCount(e.edits.seo_description) <= 1200 &&
+      charCount(e.edits.commercial) <= 2000
     )
-      return;
-    const clean = {};
-    for (const key of KEYS) {
-      const e = saved.entries[key];
-      if (!e || typeof e.raw !== "string") continue;
-      clean[key] = {
-        raw: e.raw,
-        result: safeResult(e.result) ? e.result : null,
-        edits: null,
-        mode: e.mode === "json" ? "json" : "form",
+      clean[key].edits = {
+        seo_title: e.edits.seo_title,
+        seo_description: e.edits.seo_description,
+        commercial: e.edits.commercial,
       };
-      if (
-        e.edits &&
-        typeof e.edits.seo_title === "string" &&
-        typeof e.edits.seo_description === "string" &&
-        typeof e.edits.commercial === "string" &&
-        e.edits.seo_title.length <= 70 &&
-        e.edits.seo_description.length <= 1200 &&
-        e.edits.commercial.length <= 2000
-      )
-        clean[key].edits = {
-          seo_title: e.edits.seo_title,
-          seo_description: e.edits.seo_description,
-          commercial: e.edits.commercial,
-        };
-    }
-    workspace = { version: 2, selected: saved.selected, entries: clean };
+  }
+  return { version: 2, selected: saved.selected, entries: clean };
+}
+function legacyWorkspace() {
+  try {
+    return parseWorkspace(
+      localStorage.getItem(STORAGE + "-v3") ??
+        localStorage.getItem(STORAGE + "-v2"),
+    );
   } catch {
-    storageAvailable = false;
+    return null;
   }
 }
-function persist() {
+function openWorkspaceDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(STORAGE, 1);
+    let abandoned = false;
+    const fail = () => {
+      abandoned = true;
+      clearTimeout(timeout);
+      reject(new Error("Хранилище недоступно"));
+    };
+    const timeout = setTimeout(fail, 1000);
+    request.onblocked = fail;
+    request.onerror = fail;
+    request.onupgradeneeded = () =>
+      request.result.createObjectStore("workspace");
+    request.onsuccess = () => {
+      clearTimeout(timeout);
+      if (abandoned) request.result.close();
+      else resolve(request.result);
+    };
+  });
+}
+function workspaceTransaction(mode, update) {
+  return new Promise((resolve, reject) => {
+    const transaction = workspaceDatabase.transaction("workspace", mode);
+    const store = transaction.objectStore("workspace");
+    const request = store.get("snapshot");
+    let stored;
+    request.onsuccess = () => {
+      try {
+        stored = parseWorkspace(request.result);
+        if (update) {
+          const replacement = update(stored);
+          if (replacement) store.put(replacement, "snapshot");
+        }
+      } catch {
+        transaction.abort();
+      }
+    };
+    transaction.oncomplete = () => resolve(stored);
+    transaction.onabort = () =>
+      reject(transaction.error || new Error("Запись отменена"));
+    transaction.onerror = () => reject(transaction.error || request.error);
+  });
+}
+async function restoreWorkspace() {
+  const legacy = legacyWorkspace();
   try {
-    const serialized = JSON.stringify(workspace);
-    if (serialized.length > STORAGE_LIMIT) throw new Error("Размер");
-    localStorage.setItem(STORAGE, serialized);
-    storageAvailable = true;
+    workspaceDatabase = await openWorkspaceDatabase();
+    const saved = await workspaceTransaction("readwrite", (current) =>
+      !current && legacy ? JSON.stringify(legacy) : null,
+    );
+    workspace = saved || legacy || workspace;
   } catch {
+    workspace = legacy || workspace;
     storageAvailable = false;
+    workspaceDatabase?.close();
+    workspaceDatabase = null;
+    updateStorageStatus(false);
   }
+  for (const [key, draft] of Object.entries(workspace.entries))
+    storedDraftBaselines.set(key, { ...draft });
+}
+function updateStorageStatus(conflict) {
   $("storage-warning").hidden = storageAvailable;
+  $("storage-warning").textContent = conflict
+    ? "Этот черновик изменён в другой вкладке. Ваши правки остались здесь. Скопируйте исходный JSON и скачайте нужную карточку перед перезагрузкой."
+    : storageWarning;
   $("draft-status").textContent = storageAvailable
     ? "Сохранено в браузере"
     : "Не сохранено";
+}
+function persist(fields, select = false) {
+  const key = workspace.selected;
+  if (entry()) {
+    const pending = pendingDraftFields.get(key) || new Set();
+    for (const field of fields) pending.add(field);
+    pendingDraftFields.set(key, pending);
+  }
+  if (select) pendingSelection = key;
+  if (!workspaceDatabase) return;
+  storageWriteRequested = true;
+  if (!storageWriteQueued) void flushWorkspace();
+}
+async function flushWorkspace() {
+  storageWriteRequested = false;
+  storageWriteQueued = true;
+  if (storageAvailable) $("draft-status").textContent = "Сохраняется…";
+  let conflict = false;
+  let selection;
+  const written = [];
+  try {
+    await workspaceTransaction("readwrite", (stored) => {
+      const saved = stored || {
+        version: 2,
+        selected: workspace.selected,
+        entries: {},
+      };
+      selection = pendingSelection;
+      if (selection) saved.selected = selection;
+      for (const [key, pending] of pendingDraftFields) {
+        const draft = workspace.entries[key];
+        const latest = saved.entries[key];
+        const baseline = storedDraftBaselines.get(key);
+        const compared = new Set(pending);
+        if (pending.has("edits")) compared.add("result");
+        if (
+          [...compared].some(
+            (field) =>
+              JSON.stringify(latest?.[field]) !==
+                JSON.stringify(baseline?.[field]) &&
+              JSON.stringify(latest?.[field]) !== JSON.stringify(draft[field]),
+          )
+        ) {
+          conflict = true;
+          continue;
+        }
+        saved.entries[key] ||= { ...draft };
+        for (const field of pending) saved.entries[key][field] = draft[field];
+        written.push([key, [...pending], { ...draft }]);
+      }
+      const serialized = JSON.stringify(saved);
+      if (serialized.length > STORAGE_LIMIT) throw new Error("Размер");
+      return serialized;
+    });
+    if (pendingSelection === selection) pendingSelection = null;
+    for (const [key, fields, draft] of written) {
+      const baseline = storedDraftBaselines.get(key) || { ...draft };
+      const pending = pendingDraftFields.get(key);
+      for (const field of fields) {
+        baseline[field] = draft[field];
+        if (workspace.entries[key][field] === draft[field])
+          pending.delete(field);
+      }
+      storedDraftBaselines.set(key, baseline);
+      if (pending.size === 0) pendingDraftFields.delete(key);
+    }
+    storageAvailable = !conflict;
+  } catch {
+    storageAvailable = false;
+  } finally {
+    storageWriteQueued = false;
+    updateStorageStatus(conflict);
+    if (storageWriteRequested) void flushWorkspace();
+  }
 }
 function announce(text) {
   $("announcement").textContent = text;
@@ -558,7 +705,7 @@ function setMode(mode, validate = true) {
   $("json-editor").hidden = mode !== "json";
   $("mode-form").setAttribute("aria-pressed", String(mode === "form"));
   $("mode-json").setAttribute("aria-pressed", String(mode === "json"));
-  if (entry()) persist();
+  if (entry() && validate) persist(["mode"]);
   return true;
 }
 function fillCurrentInput() {
@@ -611,7 +758,7 @@ function onFormInput() {
   $("product-json").value = raw;
   formInvalid = duplicate;
   clearError();
-  persist();
+  persist(["raw"]);
   updateControls();
 }
 function remarks(card) {
@@ -701,15 +848,19 @@ function renderResult() {
     ? "Текст изменён вручную"
     : "Формат и числа проверены";
   $("draft-badge").classList.toggle("manual", manual);
+  const savedLabel =
+    c.generation.editor_reviewed === true
+      ? "Пример ИИ · вычитан редактором"
+      : "Пример ответа ИИ · бесплатно";
   $("generation-mode").textContent = manual
     ? "Ваша редакция"
     : c.generation.viewing_saved_result
-      ? "Пример ответа ИИ · бесплатно"
+      ? savedLabel
       : "Создано с ИИ · новый ответ";
   $("mobile-generation-mode").textContent = manual
     ? "Ваша редакция · черновик"
     : c.generation.viewing_saved_result
-      ? "Пример ответа ИИ · бесплатно"
+      ? savedLabel
       : "Создано с ИИ · черновик";
   const matchingSample = EXAMPLES.find(
     (k) =>
@@ -849,30 +1000,54 @@ async function loadSample(key) {
   samples.set(key, data);
   return data;
 }
+async function refreshStoredDraft(key) {
+  if (!workspaceDatabase || pendingDraftFields.has(key)) return;
+  try {
+    const latest = (await workspaceTransaction("readonly"))?.entries[key];
+    if (latest && !pendingDraftFields.has(key)) {
+      workspace.entries[key] = latest;
+      storedDraftBaselines.set(key, { ...latest });
+    }
+  } catch {
+    // Keep the in-memory draft available if storage cannot be read.
+  }
+}
+function isOldSample(result) {
+  return (
+    result?.card.generation.viewing_saved_result === true &&
+    result.card.generation.editor_reviewed !== true
+  );
+}
 async function selectExample(key, focus = true) {
   if (busy || loadingExample || !KEYS.includes(key)) return;
-  persist();
   clearError();
   loadingExample = true;
   updateControls();
   const previous = workspace.selected;
   try {
+    await refreshStoredDraft(key);
     if (key === CUSTOM) {
       workspace.selected = CUSTOM;
       workspace.entries[CUSTOM] ??= blankEntry();
       fillCurrentInput();
       renderResult();
-      persist();
+      persist([], focus);
       setView(entry().result ? "card" : "data", focus);
       announce(
         "Введите данные своего прибора. Новый запрос к ИИ выполняется только кнопкой создания карточки.",
       );
       return;
     }
-    // Local work must remain readable during a network failure.
-    const sample = workspace.entries[key]?.result
-      ? samples.get(key)
-      : await loadSample(key);
+    const currentResult = workspace.entries[key]?.result;
+    let sample = samples.get(key);
+    if (!currentResult) {
+      sample = await loadSample(key);
+      await refreshStoredDraft(key);
+    } else if (isOldSample(currentResult) && !sample) {
+      // An older saved sample can be refreshed without losing offline access.
+      sample = await loadSample(key).catch(() => null);
+      await refreshStoredDraft(key);
+    }
     workspace.selected = key;
     if (!workspace.entries[key])
       workspace.entries[key] = {
@@ -882,7 +1057,12 @@ async function selectExample(key, focus = true) {
         mode: "form",
       };
     const e = entry();
-    if (!e.result && sample)
+    const needsResult =
+      !!sample &&
+      (!e.result ||
+        (isOldSample(e.result) &&
+          sample.card.generation.editor_reviewed === true));
+    if (needsResult)
       e.result = {
         card: clone(sample.card),
         markdown: sample.markdown,
@@ -890,7 +1070,7 @@ async function selectExample(key, focus = true) {
       };
     fillCurrentInput();
     renderResult();
-    persist();
+    persist(needsResult ? ["result"] : [], focus);
     setView("card", focus);
     announce(
       "Открыта карточка " +
@@ -917,7 +1097,9 @@ function applyConfig(value) {
     const budget = config.budget;
     $("api-help").textContent = config.ready
       ? "Gemini 3 Flash через OpenRouter. Один запрос из бюджета демо. До 3 запусков за 15 минут."
-      : "Новая генерация сейчас недоступна. Готовые примеры можно просматривать и скачивать.";
+      : budget?.unavailable_reason === "unconfirmed_cost"
+        ? "Часть бюджета зарезервирована за запросами, стоимость которых ещё не подтверждена. Готовые примеры можно просматривать и скачивать."
+        : "Новая генерация сейчас недоступна. Готовые примеры можно просматривать и скачивать.";
     $("budget-details").textContent = budget
       ? "Бюджет демо: $" +
         Number(budget.limit_usd).toFixed(2) +
@@ -951,7 +1133,11 @@ async function generateCard() {
   clearError();
   const raw = entry().raw;
   try {
-    parseProduct(raw);
+    const product = parseProduct(raw);
+    if (charCount(product.name) > 70)
+      throw new Error(
+        "Сократите название прибора до 70 символов: оно должно целиком поместиться в SEO-заголовок.",
+      );
     const maximum = config.public_demo ? 16000 : 32768;
     if (new TextEncoder().encode(raw).length > maximum)
       throw new Error(
@@ -984,7 +1170,7 @@ async function generateCard() {
       raw,
     };
     workspace.entries[key].edits = null;
-    persist();
+    persist(["result", "edits"]);
     renderResult();
     completed = true;
     announce("ИИ создал новую карточку. Посмотрите сведения для уточнения.");
@@ -1119,7 +1305,7 @@ $("product-json").addEventListener("input", () => {
   entry().raw = $("product-json").value;
   formInvalid = false;
   clearError();
-  persist();
+  persist(["raw"]);
   updateControls();
 });
 $("mode-form").addEventListener("click", () => setMode("form"));
@@ -1148,7 +1334,7 @@ $("reset-draft").addEventListener("click", async () => {
     workspace.entries[CUSTOM] = blankEntry();
     clearError();
     fillCurrentInput();
-    persist();
+    persist(["raw", "result", "edits", "mode"]);
     renderResult();
     setView("data", true);
     return;
@@ -1183,7 +1369,7 @@ $("reset-draft").addEventListener("click", async () => {
   };
   clearError();
   fillCurrentInput();
-  persist();
+  persist(["raw", "result", "edits", "mode"]);
   renderResult();
   toast("Исходный пример восстановлен.");
 });
@@ -1233,9 +1419,9 @@ $("edit-form").addEventListener("submit", (e) => {
   };
   if (
     !edits.seo_title ||
-    [...edits.seo_title].length > 70 ||
-    [...edits.seo_description].length < 800 ||
-    [...edits.seo_description].length > 1200 ||
+    charCount(edits.seo_title) > 70 ||
+    charCount(edits.seo_description) < 800 ||
+    charCount(edits.seo_description) > 1200 ||
     !edits.commercial
   ) {
     $("edit-error").textContent =
@@ -1244,7 +1430,7 @@ $("edit-form").addEventListener("submit", (e) => {
     return;
   }
   entry().edits = edits;
-  persist();
+  persist(["edits"]);
   renderResult();
   $("edit-dialog").close();
   setView("card", true);
@@ -1253,13 +1439,12 @@ $("edit-form").addEventListener("submit", (e) => {
 $("restore-text").addEventListener("click", () => {
   if (!entry()?.result) return;
   entry().edits = null;
-  persist();
+  persist(["edits"]);
   renderResult();
   $("edit-dialog").close();
   setView("card", true);
   toast("Восстановлен исходный ответ модели.");
 });
-window.addEventListener("pagehide", persist);
 // Keep the final fields and notices above the action bar, including enlarged text.
 if (typeof ResizeObserver !== "undefined") {
   const bars = [$("result-actions"), document.querySelector(".generate-block")];
@@ -1276,7 +1461,8 @@ if (typeof ResizeObserver !== "undefined") {
   bars.forEach((bar) => observer.observe(bar));
 }
 (async () => {
-  restoreWorkspace();
+  updateControls();
+  await restoreWorkspace();
   // Existing work can be read even if the configuration endpoint is temporarily unavailable.
   if (entry()) {
     try {
@@ -1287,6 +1473,7 @@ if (typeof ResizeObserver !== "undefined") {
       entry().edits = null;
     }
   }
+  loadingExample = false;
   await Promise.allSettled([
     refreshConfig(),
     selectExample(workspace.selected, false),

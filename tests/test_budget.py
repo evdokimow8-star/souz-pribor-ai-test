@@ -54,6 +54,25 @@ class BudgetTests(unittest.TestCase):
         self.budget.settle(ticket,None)
         self.assertEqual(self.budget.snapshot()['held_usd'],0.1)
 
+    def test_infinite_cost_keeps_reservations_and_explains_block(self):
+        config = Config('fake', 'google/gemini-3-flash-preview')
+        transport = Mock()
+        body = envelope().replace(b'"cost": 0.00123', b'"cost": 1e999')
+        transport.open.side_effect = lambda *args, **kwargs: Response(body)
+        for index in range(4):
+            result = self.budget.generate(product(), config, str(index), transport)
+            self.assertIsNone(result['generation']['reported_cost_usd'])
+        snapshot = self.budget.snapshot()
+        self.assertEqual(snapshot['held_attempts'], 4)
+        self.assertEqual(snapshot['held_usd'], 0.4)
+        self.assertEqual(snapshot['spent_usd'], 0.017678)
+        self.assertFalse(snapshot['can_generate'])
+        self.assertEqual(snapshot['unavailable_reason'], 'unconfirmed_cost')
+        with self.assertRaises(AppError) as error:
+            self.budget.generate(product(), config, 'another', transport)
+        self.assertEqual(error.exception.code, 'demo_pending_cost')
+        self.assertEqual(transport.open.call_count, 4)
+
     def test_known_cost_is_rounded_up_and_releases_rest(self):
         ticket=self.budget.reserve('client')
         self.budget.settle(ticket,0.0010001)

@@ -5,6 +5,7 @@ import threading
 import unittest
 import urllib.request
 import urllib.error
+from unittest.mock import patch
 
 from pribor.budget import Budget
 from pribor.llm import Config
@@ -50,3 +51,13 @@ class PublicHTTPTests(unittest.TestCase):
     def test_public_body_limit(self):
         with self.request('/api/generate',b' '*16001,origin='https://demo.example') as response:
             self.assertEqual(response.code,413)
+
+    def test_unencodable_input_is_rejected_before_budget(self):
+        before = self.budget.snapshot()
+        with patch.object(self.budget, "generate") as generate:
+            with self.request('/api/generate', br'{"name":"Test \ud800","description":"Facts"}',
+                              origin='https://demo.example') as response:
+                self.assertEqual(response.code, 422)
+                self.assertEqual(json.load(response)['error']['code'], 'invalid_json')
+            generate.assert_not_called()
+        self.assertEqual(self.budget.snapshot(), before)

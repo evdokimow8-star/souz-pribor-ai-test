@@ -17,7 +17,17 @@ from playwright.sync_api import expect, sync_playwright
 
 VIEWPORTS = [(320, 568), (360, 640), (390, 844), (430, 932),
              (768, 1024), (1024, 768), (1440, 1000)]
-STORAGE_KEY = "pribor-studio-workspace-v2"
+READ_WORKSPACE = """() => new Promise((resolve, reject) => {
+    const open = indexedDB.open('pribor-studio-workspace');
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+        const db = open.result;
+        const tx = db.transaction('workspace');
+        const read = tx.objectStore('workspace').get('snapshot');
+        tx.oncomplete = () => { db.close(); resolve(read.result || ''); };
+        tx.onabort = () => { db.close(); reject(tx.error); };
+    };
+})"""
 FIELD_MARKER = "Testo — сохранённый тестовый черновик"
 DESCRIPTION_MARKER = "Проверочное описание прибора для локальной проверки интерфейса."
 GENERATED_MARKER = "Синтетический ответ для проверки интерфейса. Платного запроса не было."
@@ -282,8 +292,8 @@ def inspect_keyboard(page):
 
 def stored(page, text):
     page.wait_for_function(
-        "([key,text])=>(localStorage.getItem(key)||'').includes(text)",
-        arg=[STORAGE_KEY, text], timeout=5000)
+        f"async text => (await ({READ_WORKSPACE})()).includes(text)",
+        arg=text, timeout=5000)
 
 
 def inspect_work_preservation(page, network, out, width):

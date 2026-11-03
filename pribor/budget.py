@@ -5,7 +5,6 @@ import hashlib
 import hmac
 import io
 import json
-import math
 import secrets
 import sqlite3
 import time
@@ -16,7 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from .domain import AppError, parse_json
-from .llm import NoRedirect, generate
+from .llm import NoRedirect, generate, reported_cost
 
 RESERVE = 100_000  # $0.10; консервативно больше верхней границы одного запроса.
 
@@ -55,20 +54,37 @@ class Budget:
 
     def snapshot(self):
         with self.connect() as db:
-            cap, initial = db.execute("SELECT cap,initial FROM config WHERE id=1").fetchone()
-            spent = initial + db.execute("SELECT COALESCE(SUM(amount),0) FROM attempts WHERE state='confirmed'").fetchone()[0]
-            held = db.execute("SELECT COALESCE(SUM(amount),0) FROM attempts WHERE state='reserved'").fetchone()[0]
+            cap, initial, confirmed, held, held_count = db.execute("""
+                SELECT cap, initial,
+                       COALESCE(SUM(CASE WHEN state='confirmed' THEN amount ELSE 0 END), 0),
+                       COALESCE(SUM(CASE WHEN state='reserved' THEN amount ELSE 0 END), 0),
+                       COUNT(CASE WHEN state='reserved' THEN 1 END)
+                FROM config LEFT JOIN attempts ON 1=1 WHERE config.id=1
+            """).fetchone()
+        spent = initial + confirmed
+        remaining = max(0, cap - spent - held)
+        reason = None
+        if remaining < RESERVE:
+            reason = "unconfirmed_cost" if cap - spent >= RESERVE else "budget_exhausted"
         return {"limit_usd": cap/1_000_000, "spent_usd": spent/1_000_000,
-                "held_usd": held/1_000_000, "remaining_usd": max(0,cap-spent-held)/1_000_000,
-                "can_generate": cap-spent-held >= RESERVE}
+                "held_usd": held/1_000_000, "remaining_usd": remaining/1_000_000,
+                "can_generate": reason is None, "held_attempts": held_count,
+                "unavailable_reason": reason}
 
     def reserve(self, client):
         identity = hmac.new(self.salt, client.encode(), hashlib.sha256).hexdigest()
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             cap, initial = db.execute("SELECT cap,initial FROM config WHERE id=1").fetchone()
-            used = initial + db.execute("SELECT COALESCE(SUM(amount),0) FROM attempts").fetchone()[0]
-            if used + RESERVE > cap:
+            confirmed, held = db.execute("""
+                SELECT COALESCE(SUM(CASE WHEN state='confirmed' THEN amount ELSE 0 END), 0),
+                       COALESCE(SUM(CASE WHEN state='reserved' THEN amount ELSE 0 END), 0)
+                FROM attempts
+            """).fetchone()
+            spent = initial + confirmed
+            if spent + held + RESERVE > cap:
+                if spent + RESERVE <= cap:
+                    raise AppError("demo_pending_cost", "Новый запрос недоступен: часть бюджета зарезервирована по запросам без подтверждённой стоимости. Готовые примеры доступны.", 429)
                 raise AppError("demo_budget", "Бюджета демо недостаточно для нового запроса. Готовые примеры доступны.", 429)
             now = time.time()
             count = db.execute("SELECT COUNT(*) FROM attempts WHERE client=? AND at>?", (identity,now-900)).fetchone()[0]
@@ -112,10 +128,8 @@ class Budget:
                     raw = response.read(262145)
                 try:
                     envelope = parse_json(raw.decode("utf-8"))
-                    cost = envelope.get("usage",{}).get("cost")
-                    if isinstance(cost,(int,float)) and not isinstance(cost,bool) and math.isfinite(cost) and cost>=0:
-                        state["cost"] = cost
-                except (AppError,UnicodeError,AttributeError):
+                    state["cost"] = reported_cost(envelope)
+                except (AppError,UnicodeError):
                     pass
                 return io.BytesIO(raw)
 
