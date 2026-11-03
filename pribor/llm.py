@@ -7,7 +7,7 @@ import socket
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -56,7 +56,7 @@ def load_env(path: Path):
             continue
         key, value = line.split("=", 1)
         key, value = key.strip(), value.strip()
-        if key not in {"LLM_API_KEY", "LLM_MODEL", "LLM_BASE_URL", "LLM_TIMEOUT_SECONDS"}:
+        if key not in {"LLM_API_KEY", "LLM_MODEL", "LLM_BASE_URL", "LLM_TIMEOUT_SECONDS", "LLM_GATEWAY_TOKEN"}:
             continue
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
@@ -65,10 +65,11 @@ def load_env(path: Path):
 
 @dataclass(frozen=True)
 class Config:
-    api_key: str = ""
+    api_key: str = field(default="", repr=False)
     model: str = ""
     base_url: str = "https://openrouter.ai/api/v1"
     timeout: float = 60
+    gateway_token: str = field(default="", repr=False)
 
     @classmethod
     def from_env(cls):
@@ -84,7 +85,8 @@ class Config:
                 or (url.scheme != "https" and not
                     (url.scheme == "http" and url.hostname in {"127.0.0.1", "localhost", "::1"}))):
             raise AppError("config_error", "API должен использовать HTTPS или локальный HTTP.", 503)
-        return cls(os.getenv("LLM_API_KEY", ""), os.getenv("LLM_MODEL", ""), base, timeout)
+        return cls(os.getenv("LLM_API_KEY", ""), os.getenv("LLM_MODEL", ""), base, timeout,
+                   os.getenv("LLM_GATEWAY_TOKEN", ""))
 
     @property
     def ready(self):
@@ -109,7 +111,7 @@ def build_request(product: Product, config: Config):
         "response_format": {"type": "json_schema", "json_schema": {
             "name": "product_card", "strict": True, "schema": OUTPUT_SCHEMA}},
     }
-    if urlsplit(config.base_url).hostname == "openrouter.ai":
+    if config.base_url in {"https://openrouter.ai/api/v1", "https://tgw.ai-kabinet.ru/openrouter/api/v1"}:
         payload["provider"] = {"require_parameters": True, "data_collection": "deny"}
         payload["usage"] = {"include": True}
     return payload
@@ -122,10 +124,13 @@ def generate(product: Product, config: Config, opener=None):
         raise AppError("insufficient_data", "Добавьте назначение или характеристики прибора.",
                        issues=product.missing())
     payload = build_request(product, config)
+    headers={"Authorization": "Bearer " + config.api_key, "Content-Type": "application/json",
+             "User-Agent": "PriborContentAssistant/1.0"}
+    if config.base_url == "https://tgw.ai-kabinet.ru/openrouter/api/v1" and config.gateway_token:
+        headers["x-gateway-token"] = config.gateway_token
     request = urllib.request.Request(config.base_url + "/chat/completions",
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"), method="POST",
-        headers={"Authorization": "Bearer " + config.api_key, "Content-Type": "application/json",
-                 "User-Agent": "PriborContentAssistant/1.0"})
+        headers=headers)
     client = opener or urllib.request.build_opener(NoRedirect())
     started = time.monotonic()
     try:

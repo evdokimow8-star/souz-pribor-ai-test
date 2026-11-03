@@ -104,6 +104,22 @@ class LLMTests(unittest.TestCase):
                 generate(product(), self.config, client)
             self.assertEqual(error.exception.status, 502)
 
+    def test_gateway_uses_owner_header_and_keeps_openrouter_contract(self):
+        client=Mock();client.open.return_value=Response(envelope())
+        config=Config('fake-api','test-model','https://tgw.ai-kabinet.ru/openrouter/api/v1',60,'fake-gateway')
+        generate(product(),config,client)
+        request=client.open.call_args.args[0]
+        self.assertEqual(request.get_header('X-gateway-token'),'fake-gateway')
+        self.assertEqual(request.get_header('Authorization'),'Bearer fake-api')
+        self.assertTrue(json.loads(request.data)['provider']['require_parameters'])
+        self.assertNotIn('fake-gateway',repr(config))
+        self.assertNotIn('fake-api',repr(config))
+
+    def test_gateway_token_never_sent_to_direct_provider(self):
+        client=Mock();client.open.return_value=Response(envelope())
+        generate(product(),Config('fake-api','test-model',gateway_token='private-gateway'),client)
+        self.assertIsNone(client.open.call_args.args[0].get_header('X-gateway-token'))
+
 
 if __name__ == "__main__":
     unittest.main()

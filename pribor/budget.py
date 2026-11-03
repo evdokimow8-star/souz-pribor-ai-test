@@ -87,7 +87,9 @@ class Budget:
                        (amount,ticket))
 
     def generate(self, product, config, client, opener=None):
-        if config.base_url != "https://openrouter.ai/api/v1" or config.model != "google/gemini-3-flash-preview":
+        direct = config.base_url == "https://openrouter.ai/api/v1"
+        gateway = config.base_url == "https://tgw.ai-kabinet.ru/openrouter/api/v1" and bool(config.gateway_token)
+        if not (direct or gateway) or config.model != "google/gemini-3-flash-preview":
             raise AppError("demo_config", "Публичный режим требует согласованной модели и API.", 503)
         if not product.description and not any(product.specs.values()):
             raise AppError("insufficient_data", "Добавьте назначение или характеристики прибора.", issues=product.missing())
