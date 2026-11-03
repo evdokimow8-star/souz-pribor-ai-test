@@ -231,7 +231,11 @@ def inspect_first_view(page, width, out):
         expect(page.locator("#panel-data")).to_be_visible()
     no_overflow(page, "Первый экран")
     if width <= 430:
-        assert page.locator(".product-photo").bounding_box()["height"] >= 100
+        title = page.locator("#seo-title").bounding_box()
+        maker = page.locator("#product-maker").bounding_box()
+        photo = page.locator(".product-photo").bounding_box()
+        assert title["y"] + title["height"] <= maker["y"] < photo["y"]
+        assert photo["height"] >= 144
         for scale in ([1, 1.25] if width >= 390 else [1]):
             lines = page.locator("#seo-title").evaluate("""(title, scale) => {
                 const previous = title.style.fontSize;
