@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Прибор / Студия товарных карточек</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip" href="#workspace">Перейти к редактору</a>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Прибор, главная"
+        ><span class="brand-mark" aria-hidden="true">П</span>ПРИБОР<span
+          class="brand-divider"
+          >/</span
+        ><span class="brand-sub">Контент-студия</span></a
+      ><span class="prototype">Прототип для «Союз-Прибор»</span
+      ><span id="connection" class="connection">Проверяем API…</span>
+    </header>
+    <main>
+      <section class="intro">
+        <div>
+          <p class="eyebrow">КАТАЛОГ КИП И АВТОМАТИКИ</p>
+          <h1>От технических данных<br />к понятной карточке.</h1>
+          <p class="lead">
+            Подготовьте черновик для B2B-каталога. Исходные факты остаются на
+            виду — неизвестные характеристики требуют уточнения.
+          </p>
+        </div>
+        <aside class="principle">
+          <span class="principle-label">ПРИНЦИП РАБОТЫ</span>
+          <p>
+            Факты — из источника.<br />Формулировки — от AI.<br /><strong
+              >Публикация — за редактором.</strong
+            >
+          </p>
+        </aside>
+      </section>
+      <section class="workspace" id="workspace" aria-label="Редактор карточки">
+        <div class="input-pane">
+          <div class="pane-heading">
+            <div>
+              <span class="step">01 / ИСТОЧНИК</span>
+              <h2>Данные прибора</h2>
+            </div>
+            <span class="file-type">JSON</span>
+          </div>
+          <fieldset class="examples">
+            <legend>Начните с проверенного примера</legend>
+            <button type="button" data-example="testo-510" aria-pressed="false">
+              testo 510 <span>Перепад давления</span></button
+            ><button
+              type="button"
+              data-example="testo-511"
+              aria-pressed="false"
+            >
+              testo 511 <span>Абсолютное давление</span>
+            </button>
+          </fieldset>
+          <label class="editor-label" for="product-json"
+            >Исходные данные <span>Можно редактировать</span></label
+          >
+          <textarea
+            id="product-json"
+            spellcheck="false"
+            autocomplete="off"
+            aria-describedby="input-help"
+          ></textarea>
+          <p id="input-help" class="help">
+            name — обязательно. Неизвестные значения оставляйте null.
+            Характеристики переносятся в результат без изменения.
+          </p>
+          <div class="input-actions">
+            <button id="generate" class="primary" type="button" disabled>
+              Подготовить карточку <span aria-hidden="true">↗</span></button
+            ><button id="saved" class="secondary" type="button" disabled>
+              Посмотреть готовый пример
+            </button>
+          </div>
+          <p id="api-help" class="help"></p>
+          <div id="error" class="error" role="alert" hidden></div>
+        </div>
+        <div class="output-pane" aria-busy="false">
+          <div class="pane-heading">
+            <div>
+              <span class="step">02 / РЕЗУЛЬТАТ</span>
+              <h2>Черновик карточки</h2>
+            </div>
+            <span id="draft-badge" class="draft-badge">Ожидает данных</span>
+          </div>
+          <div id="empty" class="empty">
+            <div class="sheet-icon" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </div>
+            <h3>Сначала — исходные факты.</h3>
+            <p>
+              Выберите прибор слева. Откройте сохранённый пример или подготовьте
+              новый черновик через API.
+            </p>
+            <ul>
+              <li>Заголовок до 70 символов</li>
+              <li>Описание на 800–1200 символов</li>
+              <li>Характеристики и поисковые запросы</li>
+            </ul>
+          </div>
+          <div id="loading" class="loading" role="status" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <h3>Готовим черновик…</h3>
+            <p>
+              После ответа проверим структуру, числа и технические обозначения.
+            </p>
+            <p class="help">
+              Один запрос к модели. Автоматических повторов нет.
+            </p>
+          </div>
+          <article id="result" hidden>
+            <div class="result-meta">
+              <span id="generation-mode"></span
+              ><span id="generation-cost"></span>
+            </div>
+            <section class="content-section">
+              <div class="section-label">
+                SEO-ЗАГОЛОВОК <span id="title-count"></span>
+              </div>
+              <h3 id="seo-title"></h3>
+            </section>
+            <section class="content-section">
+              <div class="section-label">
+                ОПИСАНИЕ <span id="description-count"></span>
+              </div>
+              <div id="seo-description" class="description"></div>
+            </section>
+            <section class="content-section">
+              <div class="section-label">ТЕХНИЧЕСКИЕ ХАРАКТЕРИСТИКИ</div>
+              <dl id="specs"></dl>
+            </section>
+            <section class="content-section">
+              <div class="section-label">ПОИСКОВЫЕ ЗАПРОСЫ</div>
+              <ul id="queries" class="queries"></ul>
+            </section>
+            <section class="commercial">
+              <div class="section-label">ДЛЯ МЕНЕДЖЕРА</div>
+              <p id="commercial"></p>
+            </section>
+            <section id="warnings-box" class="warnings" hidden>
+              <h4>Уточнить перед публикацией</h4>
+              <ul id="warnings"></ul>
+            </section>
+            <details class="evidence">
+              <summary>Связь текста с исходными фактами</summary>
+              <p class="help">
+                Ссылки на факты помогают проверить ответ, но не заменяют
+                технического редактора.
+              </p>
+              <div id="evidence-list"></div>
+            </details>
+            <a
+              id="source"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="source"
+              hidden
+              >Открыть источник ↗</a
+            >
+            <div class="export-actions">
+              <button id="copy" type="button" class="primary">
+                Копировать текст</button
+              ><button id="json" type="button" class="secondary">JSON ↓</button
+              ><button id="markdown" type="button" class="secondary">
+                Markdown ↓
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
+      <footer>
+        <span>Локальный прототип · Python · LLM API</span>
+        <p>
+          Проверка контролирует структуру, длину и часть фактических ошибок.
+          Перед публикацией требуется редакторская проверка.
+        </p>
+      </footer>
+    </main>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  </body>
+</html>

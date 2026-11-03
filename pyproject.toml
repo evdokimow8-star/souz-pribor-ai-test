@@ -1,0 +1,9 @@
+[project]
+name = "pribor-content-assistant"
+version = "1.0.0"
+description = "Проверяемые черновики товарных карточек для B2B-каталога"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.ruff]
+line-length = 100
