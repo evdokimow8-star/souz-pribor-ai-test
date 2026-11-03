@@ -1,0 +1,9 @@
+# Разместить внутри существующего aikabinet_routes; остальные маршруты сохраняются.
+handle /pribor-studio {
+    redir /pribor-studio/ 308
+}
+handle_path /pribor-studio/* {
+    reverse_proxy 127.0.0.1:18769 {
+        header_up X-Pribor-Client-IP {client_ip}
+    }
+}

@@ -4,7 +4,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import mimetypes
+import ipaddress
+import sqlite3
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -12,6 +13,7 @@ from urllib.parse import urlsplit
 
 from .domain import AppError, Product, markdown, parse_json, validate_draft
 from .llm import Config, generate, load_env
+from .budget import Budget
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = ("testo-510", "testo-511")
@@ -38,10 +40,17 @@ def example_data(key):
             "markdown": markdown(card) if card else None}
 
 
-def create_server(port=8765, config=None):
+def create_server(port=8765, config=None, public_origin=None, budget=None):
     config = config or Config.from_env()
     gate = threading.BoundedSemaphore(1)
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+    if bool(public_origin) != bool(budget):
+        raise ValueError("Для публичного режима нужны origin и постоянный бюджет")
+    if public_origin:
+        origin = urlsplit(public_origin)
+        if origin.scheme != "https" or not origin.hostname or origin.path or origin.query or origin.fragment or origin.username:
+            raise ValueError("Нужен origin HTTPS без пути")
+        allowed_hosts.add(origin.netloc)
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "Pribor/1.0"
@@ -70,7 +79,8 @@ def create_server(port=8765, config=None):
             if self.headers.get("Host") not in allowed_hosts:
                 raise AppError("invalid_host", "Доступ разрешён только через локальный адрес.", 403)
             origin = self.headers.get("Origin")
-            if origin and origin not in {f"http://{h}" for h in allowed_hosts}:
+            origins = {public_origin} if public_origin else {f"http://{h}" for h in allowed_hosts}
+            if origin and origin not in origins:
                 raise AppError("invalid_origin", "Запрос с постороннего сайта заблокирован.", 403)
             if write and self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
                 raise AppError("invalid_content_type", "Отправьте application/json.", 415)
@@ -80,8 +90,10 @@ def create_server(port=8765, config=None):
                 self.guard()
                 path = urlsplit(self.path).path
                 if path == "/api/config":
-                    self.json({"ready": config.ready, "model": config.model if config.ready else None,
-                               "example_ids": EXAMPLES})
+                    snapshot = budget.snapshot() if budget else None
+                    self.json({"ready": config.ready and (not snapshot or snapshot["can_generate"]),
+                               "model": config.model if config.ready else None,
+                               "example_ids": EXAMPLES, "public_demo": bool(budget), "budget": snapshot})
                     return
                 if path.startswith("/api/examples/"):
                     self.json(example_data(path.rsplit("/", 1)[-1]))
@@ -100,6 +112,8 @@ def create_server(port=8765, config=None):
                 self.wfile.write(raw)
             except AppError as exc:
                 self.json(exc.payload(), exc.status)
+            except sqlite3.Error:
+                self.json(AppError("budget_unavailable", "Учёт бюджета временно недоступен. Новая генерация заблокирована.", 503).payload(), 503)
             except (OSError, KeyError, ValueError):
                 self.json(AppError("internal_error", "Не удалось загрузить данные сервиса.", 500).payload(), 500)
 
@@ -113,8 +127,9 @@ def create_server(port=8765, config=None):
                     length = int(self.headers.get("Content-Length", "0"))
                 except ValueError:
                     raise AppError("invalid_length", "Некорректный размер запроса.", 400) from None
-                if not 1 <= length <= 32768:
-                    raise AppError("body_size", "Размер JSON должен быть от 1 до 32768 байт.", 413)
+                maximum = 16000 if budget else 32768
+                if not 1 <= length <= maximum:
+                    raise AppError("body_size", f"Размер JSON должен быть от 1 до {maximum} байт.", 413)
                 self.connection.settimeout(10)
                 try:
                     data = parse_json(self.rfile.read(length).decode("utf-8"))
@@ -124,10 +139,20 @@ def create_server(port=8765, config=None):
                 acquired = gate.acquire(blocking=False)
                 if not acquired:
                     raise AppError("busy", "Генерация уже выполняется. Дождитесь результата.", 429)
-                card = generate(product, config)
+                if budget:
+                    raw_ip = self.headers.get("X-Pribor-Client-IP", self.client_address[0])
+                    try:
+                        client_ip = str(ipaddress.ip_address(raw_ip))
+                    except ValueError:
+                        raise AppError("invalid_client", "Некорректный адрес клиента.", 400) from None
+                    card = budget.generate(product, config, client_ip)
+                else:
+                    card = generate(product, config)
                 self.json({"card": card, "markdown": markdown(card)})
             except AppError as exc:
                 self.json(exc.payload(), exc.status)
+            except sqlite3.Error:
+                self.json(AppError("budget_unavailable", "Учёт бюджета временно недоступен. Новая генерация заблокирована.", 503).payload(), 503)
             except (TimeoutError, OSError, ValueError):
                 self.json(AppError("request_failed", "Запрос прерван. Повторите вручную.", 500).payload(), 500)
             finally:
@@ -144,12 +169,17 @@ def create_server(port=8765, config=None):
 def main():
     parser = argparse.ArgumentParser(description="AI-помощник контент-менеджера")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--public-origin")
+    parser.add_argument("--budget-file", type=Path)
+    parser.add_argument("--budget-usd", default="0.50")
+    parser.add_argument("--initial-spent-usd", default="0")
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
         parser.error("Порт должен быть от 1 до 65535")
     load_env(ROOT / ".env")
     config = Config.from_env()
-    with create_server(args.port, config) as server:
+    budget = Budget(args.budget_file,args.budget_usd,args.initial_spent_usd) if args.budget_file else None
+    with create_server(args.port, config, args.public_origin, budget) as server:
         print(f"Откройте http://127.0.0.1:{args.port}", flush=True)
         print("API настроен." if config.ready else "Доступны сохранённые примеры. Для генерации настройте .env.", flush=True)
         try:

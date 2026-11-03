@@ -9,3 +9,5 @@ __pycache__/
 .local/
 output/
 *.log
+*.sqlite
+*.sqlite-*

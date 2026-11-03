@@ -1,0 +1,26 @@
+[Unit]
+Description=Союз-Прибор: отдельное демонстрационное приложение
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+WorkingDirectory=/opt/souz-pribor-demo/current
+EnvironmentFile=/etc/souz-pribor-demo.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -B -m pribor --port 18769 --public-origin https://ai-kabinet.ru --budget-file /var/lib/souz-pribor-demo/budget.sqlite --budget-usd 0.50 --initial-spent-usd 0.017678
+StateDirectory=souz-pribor-demo
+StateDirectoryMode=0700
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+MemoryMax=128M
+CPUQuota=50%
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

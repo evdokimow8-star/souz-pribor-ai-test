@@ -14,7 +14,10 @@ function node(tag, text, cls) {
   return el;
 }
 async function api(url, options) {
-  const response = await fetch(url, options);
+  const response = await fetch(
+    new URL(url.replace(/^\/+/, ""), new URL(".", location.href)),
+    options,
+  );
   let body;
   try {
     body = await response.json();
@@ -200,6 +203,11 @@ $("generate").addEventListener("click", async () => {
     error(err);
     invalidate();
   } finally {
+    if (config.public_demo) {
+      try {
+        applyConfig(await api("/api/config"));
+      } catch {}
+    }
     setBusy(false);
   }
 });
@@ -238,16 +246,24 @@ function download(format) {
 }
 $("json").addEventListener("click", () => download("json"));
 $("markdown").addEventListener("click", () => download("md"));
-(async () => {
-  try {
-    config = await api("/api/config");
-    $("connection").textContent = config.ready
-      ? "API подключён"
-      : "Просмотр примеров";
-    $("connection").classList.toggle("ready", config.ready);
-    $("api-help").textContent = config.ready
+function applyConfig(value) {
+  config = value;
+  $("connection").textContent = config.ready
+    ? "API подключён"
+    : "Просмотр примеров";
+  $("connection").classList.toggle("ready", config.ready);
+  if (config.public_demo)
+    document.querySelector("footer span").textContent =
+      "Демонстрация на сервере · Python · LLM API";
+  $("api-help").textContent = config.public_demo
+    ? `Публичное демо: до 3 генераций за 15 минут. Остаток общего бюджета: $${Number(config.budget.remaining_usd).toFixed(3)}. Просмотр готовых примеров бесплатный.`
+    : config.ready
       ? `Модель: ${config.model}. Новая генерация выполняет один платный запрос к вашему API.`
       : "Примеры открываются бесплатно. Для новой генерации задайте ключ и модель в .env, затем перезапустите сервис.";
+}
+(async () => {
+  try {
+    applyConfig(await api("/api/config"));
     await selectExample("testo-510");
     controls();
   } catch (err) {

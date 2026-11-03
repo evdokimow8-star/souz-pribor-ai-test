@@ -16,7 +16,9 @@ def main():
     parser.add_argument("--url", default="http://127.0.0.1:8765")
     parser.add_argument("--output", default=".local/browser")
     parser.add_argument("--axe")
+    parser.add_argument("--mount-prefix", default="")
     args = parser.parse_args()
+    args.url = args.url.rstrip('/')
     out = Path(args.output)
     out.mkdir(parents=True, exist_ok=True)
     expected = urlsplit(args.url)
@@ -39,12 +41,18 @@ def main():
                         proof["externalRequests"].append(target.hostname)
                         request.abort()
                     else:
-                        request.continue_()
+                        if args.mount_prefix:
+                            if not target.path.startswith(args.mount_prefix+'/'):
+                                request.abort()
+                                return
+                            request.continue_(url=request.request.url.replace(args.mount_prefix+'/', '/', 1))
+                        else:
+                            request.continue_()
                 context.route("**/*", route)
                 page = context.new_page()
                 page.on("pageerror", lambda err: errors.append(str(err)))
                 try:
-                    page.goto(args.url, wait_until="networkidle")
+                    page.goto(args.url+'/', wait_until="networkidle")
                     page.get_by_role("button", name="testo 510").wait_for()
                     expect(page.locator('#product-json')).to_have_value(re.compile('testo 510'))
                     assert page.get_by_role("button", name="Подготовить карточку").is_disabled()
@@ -76,7 +84,7 @@ def main():
                         violations=page.evaluate("""async()=>{const r=await axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}});return r.violations.map(v=>({id:v.id,impact:v.impact,targets:v.nodes.map(n=>n.target)}))}""")
                         assert not violations, violations
                     if width==1440:
-                        sample=page.request.get(args.url+"/api/examples/testo-510").json()
+                        sample=page.evaluate('(u)=>fetch(u).then(r=>r.json())',args.url+"/api/examples/testo-510")
                         with page.expect_download() as event:
                             page.get_by_role("button", name="JSON ↓", exact=True).click()
                         event.value.save_as(str(out/"download.json"))
