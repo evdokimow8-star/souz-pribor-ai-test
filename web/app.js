@@ -1,6 +1,8 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
-const KEYS = ["testo-510", "testo-511"];
+const EXAMPLES = ["testo-510", "testo-511"];
+const CUSTOM = "custom";
+const KEYS = [...EXAMPLES, CUSTOM];
 const STORAGE = "pribor-studio-workspace-v2";
 const STORAGE_LIMIT = 800000;
 const wide = matchMedia("(min-width: 1000px)");
@@ -16,6 +18,20 @@ let busy = false,
 let toastTimer,
   generationError = false;
 const entry = () => workspace.entries[workspace.selected];
+const blankProduct = () => ({
+  name: "",
+  manufacturer: "",
+  description: "",
+  specs: {},
+  source_url: "",
+  notes: [],
+});
+const blankEntry = () => ({
+  raw: JSON.stringify(blankProduct(), null, 2),
+  result: null,
+  edits: null,
+  mode: "form",
+});
 const icon = (name) => {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   const use = document.createElementNS(svg.namespaceURI, "use");
@@ -123,7 +139,7 @@ function hasDuplicateKeys(raw) {
   }
   value();
 }
-function parseProduct(raw) {
+function parseProduct(raw, allowIncomplete = false) {
   let p;
   try {
     p = JSON.parse(raw);
@@ -182,7 +198,7 @@ function parseProduct(raw) {
   if (!Array.isArray(notes) || notes.length > 10)
     throw new Error("Можно добавить до 10 замечаний, каждое с новой строки.");
   return {
-    name: text(p.name, "Название", 160, true),
+    name: text(p.name, "Название", 160, !allowIncomplete),
     manufacturer: text(p.manufacturer, "Производитель", 160),
     description: text(p.description, "Описание", 6000),
     specs: normalized,
@@ -433,8 +449,14 @@ function updateControls() {
   const locked = busy || loadingExample;
   $("generate").disabled = locked || !config.ready || !entry();
   $("generate-label").textContent = busy
-    ? "Готовим карточку…"
-    : "Создать карточку";
+    ? "ИИ готовит карточку…"
+    : "Создать карточку с ИИ";
+  $("data-heading").textContent =
+    workspace.selected === CUSTOM ? "Данные вашего прибора" : "Исходные данные";
+  $("reset-draft-label").textContent =
+    workspace.selected === CUSTOM
+      ? "Очистить свой прибор"
+      : "Сбросить правки примера";
   $("form-fields").disabled = locked;
   $("product-json").disabled = locked;
   for (const id of [
@@ -471,8 +493,10 @@ function updateControls() {
       sample &&
       saved &&
       fingerprint(saved.raw) !== fingerprint(JSON.stringify(sample.product));
-    document.querySelector('[data-example="' + key + '"] .draft-dot').hidden =
-      !dirty;
+    const dot = document.querySelector(
+      '[data-example="' + key + '"] .draft-dot',
+    );
+    if (dot) dot.hidden = !dirty;
   }
   syncNavigation();
 }
@@ -521,7 +545,7 @@ function fillForm(p) {
 function setMode(mode, validate = true) {
   if (mode === "form" && validate) {
     try {
-      fillForm(parseProduct($("product-json").value));
+      fillForm(parseProduct($("product-json").value, true));
       formInvalid = false;
     } catch (err) {
       showError(err);
@@ -542,7 +566,7 @@ function fillCurrentInput() {
   const e = entry();
   $("product-json").value = e.raw;
   try {
-    fillForm(parseProduct(e.raw));
+    fillForm(parseProduct(e.raw, true));
     setMode(e.mode || "form", false);
   } catch {
     setMode("json", false);
@@ -649,6 +673,12 @@ function renderResult() {
   $("checks-empty").hidden = !!c;
   $("checks-content").hidden = !c;
   if (!c) {
+    if (workspace.selected === CUSTOM) {
+      $("empty").querySelector("h2").textContent = "Создайте карточку с ИИ";
+      $("empty").querySelector("p").textContent =
+        "Заполните данные вашего прибора и нажмите «Создать карточку с ИИ». Здесь появится результат.";
+      $("saved").hidden = true;
+    }
     updateControls();
     return;
   }
@@ -674,14 +704,14 @@ function renderResult() {
   $("generation-mode").textContent = manual
     ? "Ваша редакция"
     : c.generation.viewing_saved_result
-      ? "Сохранённый пример · бесплатно"
-      : "Новый ответ модели";
+      ? "Пример ответа ИИ · бесплатно"
+      : "Создано с ИИ · новый ответ";
   $("mobile-generation-mode").textContent = manual
     ? "Ваша редакция · черновик"
     : c.generation.viewing_saved_result
-      ? "Готовый пример · черновик"
-      : "Ответ модели · черновик";
-  const matchingSample = KEYS.find(
+      ? "Пример ответа ИИ · бесплатно"
+      : "Создано с ИИ · черновик";
+  const matchingSample = EXAMPLES.find(
     (k) =>
       resultProduct.name === k.replace("-", " ") &&
       resultProduct.source_url?.includes("/" + k + "/"),
@@ -801,6 +831,7 @@ function renderResult() {
   updateControls();
 }
 async function loadSample(key) {
+  if (!EXAMPLES.includes(key)) throw new Error("Готовый пример не найден.");
   if (samples.has(key)) return samples.get(key);
   const data = await api("/api/examples/" + key);
   if (
@@ -826,6 +857,18 @@ async function selectExample(key, focus = true) {
   updateControls();
   const previous = workspace.selected;
   try {
+    if (key === CUSTOM) {
+      workspace.selected = CUSTOM;
+      workspace.entries[CUSTOM] ??= blankEntry();
+      fillCurrentInput();
+      renderResult();
+      persist();
+      setView(entry().result ? "card" : "data", focus);
+      announce(
+        "Введите данные своего прибора. Новый запрос к ИИ выполняется только кнопкой создания карточки.",
+      );
+      return;
+    }
     // Local work must remain readable during a network failure.
     const sample = workspace.entries[key]?.result
       ? samples.get(key)
@@ -873,7 +916,7 @@ function applyConfig(value) {
   if (config.public_demo) {
     const budget = config.budget;
     $("api-help").textContent = config.ready
-      ? "Новый запрос к модели. До 3 запусков за 15 минут; общий бюджет демо ограничен."
+      ? "Gemini 3 Flash через OpenRouter. Один запрос из бюджета демо. До 3 запусков за 15 минут."
       : "Новая генерация сейчас недоступна. Готовые примеры можно просматривать и скачивать.";
     $("budget-details").textContent = budget
       ? "Бюджет демо: $" +
@@ -944,7 +987,7 @@ async function generateCard() {
     persist();
     renderResult();
     completed = true;
-    announce("Новая карточка готова. Посмотрите сведения для уточнения.");
+    announce("ИИ создал новую карточку. Посмотрите сведения для уточнения.");
   } catch (err) {
     generationError = true;
     renderResult();
@@ -1008,7 +1051,20 @@ function download(format) {
   });
   const url = URL.createObjectURL(blob),
     a = node("a");
-  const name = workspace.selected;
+  let name = workspace.selected;
+  if (name === CUSTOM) {
+    try {
+      name =
+        parseProduct(entry().result.raw)
+          .name.toLowerCase()
+          .normalize("NFKC")
+          .replace(/[^\p{L}\p{N}]+/gu, "-")
+          .replace(/^-|-$/g, "")
+          .slice(0, 80) || "pribor";
+    } catch {
+      name = "pribor";
+    }
+  }
   a.href = url;
   a.download = name + "-card." + (format === "json" ? "json" : "md");
   a.click();
@@ -1082,6 +1138,21 @@ $("retry-config").addEventListener("click", refreshConfig);
 $("saved").addEventListener("click", () => selectExample(workspace.selected));
 $("reset-draft").addEventListener("click", async () => {
   if (busy || loadingExample) return;
+  if (workspace.selected === CUSTOM) {
+    if (
+      !confirm(
+        "Очистить данные и результат вашего прибора? Готовые примеры сохранятся.",
+      )
+    )
+      return;
+    workspace.entries[CUSTOM] = blankEntry();
+    clearError();
+    fillCurrentInput();
+    persist();
+    renderResult();
+    setView("data", true);
+    return;
+  }
   if (
     !confirm(
       "Сбросить ваши правки этого примера и вернуть исходные данные и сохранённую карточку?",
@@ -1131,6 +1202,9 @@ $("copy").addEventListener("click", async () => {
 });
 $("json").addEventListener("click", () => download("json"));
 $("markdown").addEventListener("click", () => download("md"));
+$("export-menu").addEventListener("toggle", () => {
+  if ($("export-menu").open) $("toast").hidden = true;
+});
 document.addEventListener("click", (e) => {
   if (!$("export-menu").contains(e.target)) $("export-menu").open = false;
 });

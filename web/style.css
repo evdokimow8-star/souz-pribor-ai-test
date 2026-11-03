@@ -256,6 +256,20 @@ main {
   margin: 0;
   min-width: 0;
 }
+.product-selector {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.new-product {
+  width: 100%;
+  color: var(--blue);
+  font-weight: 700;
+}
+.new-product[aria-pressed="true"] {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+}
 .examples button {
   flex: 1;
   text-align: left;
@@ -1100,6 +1114,7 @@ dd {
 }
 .toast {
   position: fixed;
+  pointer-events: none;
   left: 50%;
   bottom: 28px;
   transform: translateX(-50%);

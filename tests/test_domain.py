@@ -44,6 +44,21 @@ class DomainTests(unittest.TestCase):
         candidate["commercial"]["text"] = "Диапазон 0 ... 100 МПа."
         self.reject(candidate)
 
+    def test_temperature_sign_and_number_unit_pair_are_preserved(self):
+        original = product().as_dict()
+        original["specs"]["Рабочая температура"] = "0 ... +50 °C"
+        instrument = Product.from_dict(original)
+        candidate = draft()
+        for text in ("Температура до −50 °C.", "Диапазон давления до 50 гПа."):
+            with self.subTest(text=text):
+                candidate["commercial"] = {"text": text, "fact_ids": ["spec_1", "spec_4"]}
+                with self.assertRaises(AppError) as error:
+                    validate_draft(instrument, candidate)
+                self.assertEqual(error.exception.code, "draft_rejected")
+        candidate["commercial"] = {"text": "Давление от 0 гПа до 100 гПа. Температура до 50 °C.",
+                                   "fact_ids": ["spec_1", "spec_4"]}
+        validate_draft(instrument, candidate)
+
     def test_russian_preposition_is_not_a_volt_unit(self):
         candidate = draft()
         candidate["commercial"] = {"text": "В приборе используются данные измерения давления.",

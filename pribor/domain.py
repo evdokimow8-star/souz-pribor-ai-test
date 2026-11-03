@@ -138,9 +138,13 @@ OUTPUT_SCHEMA = {
     "required": ["seo_title", "description_paragraphs", "search_queries", "commercial"],
 }
 
-NUMBERS = re.compile(r"\d+(?:[.,]\d+)?")
+NUMERIC_VALUE = r"[+\-−]?\d+(?:[.,]\d+)?"
+NUMBERS = re.compile(rf"(?<!\d){NUMERIC_VALUE}")
 TECH = re.compile(r"(?<![\w])(?:IP\d{2}|RS[- ]?\d+|USB|Bluetooth|Wi-Fi|GSM|GPRS)(?![\w])")
-QUANTITY_UNIT = re.compile(r"\d\s*(МПа|мПа|кПа|гПа|Па|мбар|бар|кВ|мВ|В|мА|А|кГц|Гц|мм|см|м|кг|г|°C|%)(?![\w])")
+UNITS = r"МПа|мПа|кПа|гПа|Па|мбар|бар|кВ|мВ|В|мА|А|кГц|Гц|м/с|мм|см|м|кг|г|°[CС]|%"
+QUANTITY_UNIT = re.compile(rf"(?<!\d)({NUMERIC_VALUE})\s*({UNITS})(?![\w/])")
+RANGE_UNIT = re.compile(rf"(?<!\d)({NUMERIC_VALUE})\s*(?:\.\.\.|…|[–—-]|до)\s*"
+                        rf"({NUMERIC_VALUE})\s*({UNITS})(?![\w/])")
 PROHIBITED = re.compile(r"(?:гарантированн|лучший|самый точный|высок\w* точн|минимизир|сертифицир|взрывозащищ|"
                         r"в наличии|бесплатн\w* доставк|срок поставки)", re.IGNORECASE)
 FEATURES = [re.compile(p, re.IGNORECASE) for p in (
@@ -149,12 +153,30 @@ FEATURES = [re.compile(p, re.IGNORECASE) for p in (
 )]
 
 
+def normalized_number(value):
+    number = Decimal(value.replace(",", ".").replace("−", "-"))
+    exact = format(number, "f") if number else "0"
+    return exact.rstrip("0").rstrip(".") if "." in exact else exact
+
+
 def numbers(value):
-    return {str(Decimal(v.replace(",", ".")).normalize()) for v in NUMBERS.findall(value)}
+    return {normalized_number(v) for v in NUMBERS.findall(value)}
+
+
+def normalized_unit(unit):
+    return "°C" if unit == "°С" else unit
 
 
 def technical_tokens(value):
-    return set(TECH.findall(value)) | set(QUANTITY_UNIT.findall(value))
+    return set(TECH.findall(value)) | {normalized_unit(unit) for _, unit in QUANTITY_UNIT.findall(value)}
+
+
+def quantities(value):
+    """У границ диапазона общая единица: 0 … 100 гПа даёт две величины."""
+    result = {(normalized_number(n), normalized_unit(unit)) for n, unit in QUANTITY_UNIT.findall(value)}
+    for left, right, unit in RANGE_UNIT.findall(value):
+        result.update((normalized_number(n), normalized_unit(unit)) for n in (left, right))
+    return result
 
 
 def validate_draft(product: Product, draft: dict):
@@ -185,6 +207,11 @@ def validate_draft(product: Product, draft: dict):
         extra_tech = technical_tokens(content) - technical_tokens(source)
         if extra_tech:
             issues.append(f"{field}: неподтверждённые обозначения: {', '.join(sorted(extra_tech))}")
+        if not unknown and not extra_tech:
+            unsupported = quantities(content) - quantities(source)
+            if unsupported:
+                details = ", ".join(f"{number} {unit}" for number, unit in sorted(unsupported))
+                issues.append(f"{field}: величины отсутствуют в исходных фактах: {details}")
         if PROHIBITED.search(content) and not PROHIBITED.search(source):
             issues.append(f"{field}: неподтверждённое коммерческое или техническое обещание")
         if any(pattern.search(content) and not pattern.search(source) for pattern in FEATURES):

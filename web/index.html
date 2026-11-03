@@ -85,7 +85,7 @@
                 / AI-редактор каталога</span
               >
             </h1>
-            <p>Тестовое задание для «Союз-Прибор»</p>
+            <p>ИИ создаёт карточку из характеристик</p>
           </div>
         </div>
         <a
@@ -103,27 +103,41 @@
     </header>
     <main id="workspace">
       <div class="workspace-navigation">
-        <fieldset class="examples">
-          <legend class="sr-only">Рабочий пример прибора</legend>
-          <button type="button" data-example="testo-510" aria-pressed="true">
-            <span
-              >testo 510<span
-                class="draft-dot"
-                aria-label="Есть ваши правки"
-                hidden
-              ></span></span
-            ><small>Перепад давления</small>
+        <div class="product-selector">
+          <button
+            id="new-product"
+            class="secondary new-product"
+            type="button"
+            data-example="custom"
+            aria-pressed="false"
+          >
+            <svg aria-hidden="true"><use href="#i-plus" /></svg>Ввести свой
+            прибор
           </button>
-          <button type="button" data-example="testo-511" aria-pressed="false">
-            <span
-              >testo 511<span
-                class="draft-dot"
-                aria-label="Есть ваши правки"
-                hidden
-              ></span></span
-            ><small>Абсолютное давление</small>
-          </button>
-        </fieldset>
+          <fieldset class="examples">
+            <legend class="sr-only">
+              Готовые примеры без нового запроса к ИИ
+            </legend>
+            <button type="button" data-example="testo-510" aria-pressed="true">
+              <span
+                >testo 510<span
+                  class="draft-dot"
+                  aria-label="Есть ваши правки"
+                  hidden
+                ></span></span
+              ><small>Готовый пример</small>
+            </button>
+            <button type="button" data-example="testo-511" aria-pressed="false">
+              <span
+                >testo 511<span
+                  class="draft-dot"
+                  aria-label="Есть ваши правки"
+                  hidden
+                ></span></span
+              ><small>Готовый пример</small>
+            </button>
+          </fieldset>
+        </div>
         <div class="view-tabs" role="tablist" aria-label="Раздел редактора">
           <button
             type="button"
@@ -183,12 +197,19 @@
             >
           </div>
           <p class="pane-description">
-            Укажите факты о приборе. Неизвестные значения оставьте пустыми.
+            Введите характеристики и назначение. ИИ подготовит заголовок,
+            описание и поисковые фразы. Неизвестные значения оставьте пустыми.
           </p>
           <div class="generate-block">
-            <button id="generate" class="primary" type="button" disabled>
+            <button
+              id="generate"
+              class="primary"
+              type="button"
+              aria-describedby="api-help"
+              disabled
+            >
               <svg aria-hidden="true"><use href="#i-document" /></svg
-              ><span id="generate-label">Создать карточку</span>
+              ><span id="generate-label">Создать карточку с ИИ</span>
             </button>
           </div>
           <div class="generation-help">
@@ -216,6 +237,7 @@
               type="text"
               maxlength="160"
               autocomplete="off"
+              placeholder="Например, манометр DM 02"
             />
             <label for="product-manufacturer">Производитель</label>
             <input
@@ -223,12 +245,14 @@
               type="text"
               maxlength="160"
               autocomplete="off"
+              placeholder="Производитель из исходных данных"
             />
             <label for="product-description">Назначение и особенности</label>
             <textarea
               id="product-description"
               rows="5"
               maxlength="6000"
+              placeholder="Вставьте назначение и особенности из описания или паспорта прибора"
             ></textarea>
             <div class="field-heading">
               <h3>Характеристики</h3>
@@ -248,7 +272,12 @@
               autocomplete="off"
               autocapitalize="none"
               spellcheck="false"
+              aria-describedby="source-input-help"
             />
+            <p id="source-input-help" class="help">
+              Ссылка для проверки редактором. Данные со страницы автоматически
+              не загружаются.
+            </p>
             <label for="product-notes">Что важно уточнить</label>
             <textarea
               id="product-notes"
@@ -282,8 +311,8 @@
               Правки этого примера сохраняются только в вашем браузере.
             </p>
             <button type="button" id="reset-draft" class="text-button">
-              <svg aria-hidden="true"><use href="#i-refresh" /></svg>Сбросить
-              правки примера
+              <svg aria-hidden="true"><use href="#i-refresh" /></svg
+              ><span id="reset-draft-label">Сбросить правки примера</span>
             </button>
           </div>
         </section>
@@ -507,7 +536,7 @@
         </div>
       </div>
       <footer class="footer">
-        <p>Факты из источника. Формулировки от AI. Решение за редактором.</p>
+        <p>Тестовое задание для «Союз-Прибор». Черновик проверяет редактор.</p>
         <a
           href="https://github.com/evdokimow8-star/souz-pribor-ai-test#архитектура-и-решения"
           target="_blank"
