@@ -1672,14 +1672,17 @@ dialog::backdrop {
     font-size: 12px;
   }
 }
-@media (max-width: 360px) {
+@media (max-width: 600px) {
   .product-identity {
+    --mobile-photo-size: clamp(100px, 33vw, 144px);
     grid-template-columns: 1fr;
     gap: 10px;
   }
   .product-photo {
-    width: 56px;
-    height: 64px;
+    width: var(--mobile-photo-size);
+    height: var(--mobile-photo-size);
+    grid-row: 1;
+    grid-column: 1;
   }
   .product-identity > div:last-child {
     display: contents;
@@ -1687,12 +1690,8 @@ dialog::backdrop {
   .product-maker {
     grid-row: 1;
     grid-column: 1;
-    margin-left: 68px;
+    margin-left: calc(var(--mobile-photo-size) + 12px);
     align-self: center;
-  }
-  .product-photo {
-    grid-row: 1;
-    grid-column: 1;
   }
   #seo-title,
   .title-caption {

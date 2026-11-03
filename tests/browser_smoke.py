@@ -230,6 +230,21 @@ def inspect_first_view(page, width, out):
     else:
         expect(page.locator("#panel-data")).to_be_visible()
     no_overflow(page, "Первый экран")
+    if width <= 430:
+        assert page.locator(".product-photo").bounding_box()["height"] >= 100
+        for scale in ([1, 1.25] if width >= 390 else [1]):
+            lines = page.locator("#seo-title").evaluate("""(title, scale) => {
+                const previous = title.style.fontSize;
+                title.style.fontSize = parseFloat(getComputedStyle(title).fontSize) * scale + "px";
+                const text = title.firstChild;
+                const range = document.createRange();
+                range.setStart(text, 0);
+                range.setEnd(text, text.data.indexOf(" "));
+                const lines = range.getClientRects().length;
+                title.style.fontSize = previous;
+                return lines;
+            }""", scale)
+            assert lines == 1, ("Первое слово заголовка разорвано", width, scale)
     screenshot(page, out, width, "first-viewport")
     return checks
 
